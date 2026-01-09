@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ORAPRIVCHAT</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Splash Screen / Welcome -->
+        <div class="splash-screen" id="splashScreen">
+            <div class="logo">
+                <div class="logo-icon">
+                    <i class="fas fa-lock"></i>
+                </div>
+                <h1>ORAPRIVCHAT</h1>
+            </div>
+            <p class="tagline">End-to-end encrypted • No database • 100% Private</p>
+            <button class="start-btn" id="startBtn">
+                <i class="fas fa-comments"></i> Start Chatting
+            </button>
+        </div>
+
+        <!-- Room Selector -->
+        <div class="room-selector" id="roomSelector" style="display: none;">
+            <div class="header">
+                <h2><i class="fas fa-door-closed"></i> Select Room</h2>
+                <p>Choose category and room number</p>
+            </div>
+
+            <div class="selection-area">
+                <div class="selection-group">
+                    <div class="selection-label">
+                        <i class="fas fa-filter"></i> CATEGORY
+                    </div>
+                    <div class="selection-controls">
+                        <button class="control-btn prev" id="prevCatBtn">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <div class="selection-display" id="catDisplay">A</div>
+                        <button class="control-btn next" id="nextCatBtn">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="selection-group">
+                    <div class="selection-label">
+                        <i class="fas fa-hashtag"></i> ROOM NUMBER
+                    </div>
+                    <div class="selection-controls">
+                        <button class="control-btn prev" id="prevRoomBtn">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <div class="selection-display" id="roomDisplay">001</div>
+                        <button class="control-btn next" id="nextRoomBtn">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="room-preview">
+                    <div class="preview-label">
+                        <i class="fas fa-eye"></i> You'll be joining:
+                    </div>
+                    <div class="preview-value" id="roomPreview">A-001</div>
+                </div>
+
+                <button class="join-btn" id="joinBtn">
+                    <i class="fas fa-sign-in-alt"></i> Join Room
+                </button>
+            </div>
+        </div>
+
+        <!-- Chat Interface -->
+        <div class="chat-interface" id="chatInterface" style="display: none;">
+            <div class="chat-header">
+                <button class="back-btn" id="backBtn">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <div class="room-info">
+                    <div class="room-name" id="roomName">
+                        <i class="fas fa-door-open"></i> A-001
+                    </div>
+                    <div class="room-stats">
+                        <span class="user-count" id="userCount">
+                            <i class="fas fa-users"></i> 1 online
+                        </span>
+                        <span class="timer" id="timer">
+                            <i class="fas fa-clock"></i> 15:00
+                        </span>
+                    </div>
+                </div>
+                <div class="user-id" id="userId">
+                    <i class="fas fa-user-secret"></i> Anon-XXXX
+                </div>
+            </div>
+
+            <div class="messages-container" id="messagesContainer">
+                <!-- Messages will be loaded here -->
+                <div class="welcome-msg">
+                    <div class="welcome-icon">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <div class="welcome-text">
+                        <h3>Welcome to ORAPRIVCHAT</h3>
+                        <p>Your messages are end-to-end encrypted and never stored on any server.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="message-input-area">
+                <div class="input-wrapper">
+                    <input type="text" 
+                           class="message-input" 
+                           id="messageInput" 
+                           placeholder="Type your message..."
+                           autocomplete="off">
+                    <div class="input-actions">
+                        <button class="attach-btn" id="attachBtn" title="Attach file">
+                            <i class="fas fa-paperclip"></i>
+                        </button>
+                        <button class="send-btn" id="sendBtn">
+                            <i class="fas fa-paper-plane"></i> Send
+                        </button>
+                    </div>
+                </div>
+                <input type="file" id="fileInput" accept="image/*,video/*" style="display: none;">
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection Status -->
+    <div class="connection-status" id="connectionStatus">
+        <div class="status-dot"></div>
+        <span class="status-text">
+            <i class="fas fa-wifi"></i> Connecting...
+        </span>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
