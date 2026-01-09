@@ -1,0 +1,29 @@
+{
+  "name": "chat-privasi",
+  "version": "1.0.0",
+  "description": "Chat 100% Privasi dengan WebSocket",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2",
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "chat",
+    "privacy",
+    "websocket",
+    "anonymous"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/username/chat-privasi.git"
+  }
+}
