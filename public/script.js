@@ -262,8 +262,8 @@ class PrivateChatPro {
             return;
         }
         
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        // Ganti dengan URL server WebSocket Anda
+        const wsUrl = 'wss://oraprivchat.up.railway.app/ws';
         
         try {
             this.ws = new WebSocket(wsUrl);
@@ -310,14 +310,6 @@ class PrivateChatPro {
                 console.error('WebSocket error:', error);
                 this.updateConnectionStatus(false);
                 this.showToast('Connection error');
-            };
-            
-            // Add event listener for testing
-            window.testWebSocket = () => {
-                console.log('WebSocket state:', this.ws.readyState);
-                console.log('Is connected:', this.isConnected);
-                console.log('Current room:', this.roomId);
-                console.log('Session active:', this.sessionActive);
             };
             
         } catch (error) {
@@ -390,6 +382,16 @@ class PrivateChatPro {
         console.log('Processing server message:', data);
         
         switch (data.type) {
+            case 'init':
+                // Server mengirim user ID baru
+                if (data.userId) {
+                    this.userId = data.userId;
+                    this.username = `User${this.userId.substr(this.userId.length - 4)}`;
+                    this.updateUserIdDisplay();
+                    console.log('User ID updated by server:', this.userId);
+                }
+                break;
+                
             case 'room_joined':
                 this.handleRoomJoined(data);
                 break;
@@ -422,14 +424,18 @@ class PrivateChatPro {
                 console.log('Received pong from server');
                 break;
                 
-            case 'ack':
-                // Message acknowledged by server
-                console.log('Message acknowledged by server:', data.messageId);
-                this.removeSendingIndicator(data.tempId);
-                break;
-                
             case 'notification':
                 this.showToast(data.message, 3000);
+                break;
+                
+            case 'broadcast':
+                // Pesan broadcast dari server
+                if (data.message) {
+                    this.displaySystemMessage({
+                        type: 'system',
+                        text: data.message
+                    });
+                }
                 break;
                 
             default:
@@ -446,8 +452,18 @@ class PrivateChatPro {
         this.startSessionTimer();
         this.showToast(`Joined room ${data.roomId}`);
         
+        // Clear messages
+        if (this.messagesContainer) {
+            this.messagesContainer.innerHTML = '';
+        }
+        
         // Add welcome message
         this.addWelcomeMessage();
+        
+        // Update user count if provided
+        if (data.userCount !== undefined) {
+            this.updateUserCount(data.userCount);
+        }
     }
     
     enterRoom() {
@@ -639,7 +655,7 @@ class PrivateChatPro {
             return;
         }
         
-        if (!this.sessionActive) {
+        if (!this.sessionActive || !this.roomId) {
             this.showToast('Please join a room first');
             return;
         }
@@ -647,7 +663,7 @@ class PrivateChatPro {
         const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         
         const messageData = {
-            type: hasFile ? 'upload_media' : (this.replyingTo ? 'reply' : 'message'),
+            type: hasFile ? 'upload_media' : 'message',
             id: messageId,
             userId: this.userId,
             username: this.username,
@@ -657,6 +673,7 @@ class PrivateChatPro {
         
         // Add reply data if exists
         if (this.replyingTo) {
+            messageData.type = 'reply';
             messageData.replyTo = {
                 id: this.replyingTo.id,
                 username: this.replyingTo.sender,
@@ -723,7 +740,8 @@ class PrivateChatPro {
                     ...messageData,
                     type: 'sent',
                     fileUrl: e.target.result,
-                    fileName: this.uploadedFile.name
+                    fileName: this.uploadedFile.name,
+                    fileType: this.uploadedFile.type
                 });
                 
                 // Clear states
@@ -748,14 +766,6 @@ class PrivateChatPro {
         };
         
         reader.readAsDataURL(this.uploadedFile);
-    }
-    
-    removeSendingIndicator(tempId) {
-        // Remove temporary message indicator
-        const tempElement = document.querySelector(`[data-temp-id="${tempId}"]`);
-        if (tempElement) {
-            tempElement.remove();
-        }
     }
     
     handleFileSelect(event) {
@@ -1185,16 +1195,4 @@ document.addEventListener('DOMContentLoaded', () => {
             return 'You have an active chat session. Are you sure you want to leave?';
         }
     });
-    
-    // Debug helper
-    window.debugChat = () => {
-        console.log('=== CHAT DEBUG INFO ===');
-        console.log('WebSocket:', window.chatApp.ws);
-        console.log('WebSocket State:', window.chatApp.ws ? window.chatApp.ws.readyState : 'No WebSocket');
-        console.log('Is Connected:', window.chatApp.isConnected);
-        console.log('Session Active:', window.chatApp.sessionActive);
-        console.log('Room ID:', window.chatApp.roomId);
-        console.log('Current User:', window.chatApp.userId);
-        console.log('========================');
-    };
 });
