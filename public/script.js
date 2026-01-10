@@ -1,11 +1,12 @@
-class ORAPRIVCHAT {
+class PrivateChat {
     constructor() {
         this.ws = null;
-        this.userId = '';
-        this.currentCat = 'A';
+        this.userId = 'User_' + Math.random().toString(36).substr(2, 6);
+        this.currentCategory = 'A';
         this.currentRoom = 1;
+        this.isConnected = false;
         this.sessionTimer = null;
-        this.timeLeft = 900;
+        this.timeLeft = 900; // 15 menit
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         
@@ -15,83 +16,90 @@ class ORAPRIVCHAT {
     init() {
         this.cacheElements();
         this.bindEvents();
-        this.updateRoomPreview();
+        this.renderSelector();
         this.connectWebSocket();
+        this.setupResponsive();
     }
     
     cacheElements() {
-        // Screens
-        this.splashScreen = document.getElementById('splashScreen');
-        this.roomSelector = document.getElementById('roomSelector');
-        this.chatInterface = document.getElementById('chatInterface');
-        
-        // Selector elements
-        this.catDisplay = document.getElementById('catDisplay');
+        // Selector screen elements
+        this.selectorScreen = document.getElementById('selector');
+        this.chatScreen = document.getElementById('chat');
+        this.catValue = document.getElementById('catValue');
+        this.roomValue = document.getElementById('roomValue');
         this.roomDisplay = document.getElementById('roomDisplay');
-        this.roomPreview = document.getElementById('roomPreview');
+        this.prevCatBtn = document.getElementById('prevCat');
+        this.nextCatBtn = document.getElementById('nextCat');
+        this.prevRoomBtn = document.getElementById('prevRoom');
+        this.nextRoomBtn = document.getElementById('nextRoom');
+        this.enterBtn = document.getElementById('enterBtn');
         
-        // Chat elements
-        this.roomName = document.getElementById('roomName');
+        // Chat screen elements
+        this.roomTitle = document.getElementById('roomTitle');
         this.userCount = document.getElementById('userCount');
-        this.timerDisplay = document.getElementById('timer');
-        this.userIdDisplay = document.getElementById('userId');
-        this.messagesContainer = document.getElementById('messagesContainer');
+        this.timerElement = document.getElementById('timer');
+        this.backBtn = document.getElementById('backBtn');
+        this.messagesContainer = document.getElementById('messages');
         this.messageInput = document.getElementById('messageInput');
+        this.sendBtn = document.getElementById('sendBtn');
         
-        // Status
-        this.connectionStatus = document.getElementById('connectionStatus');
-        this.statusDot = this.connectionStatus.querySelector('.status-dot');
-        this.statusText = this.connectionStatus.querySelector('.status-text');
+        // Status indicator
+        this.statusIndicator = document.getElementById('statusIndicator');
+        this.statusDot = document.getElementById('statusDot');
+        this.statusText = document.getElementById('statusText');
     }
     
     bindEvents() {
         // Navigation buttons
-        document.getElementById('startBtn').onclick = () => this.showRoomSelector();
-        document.getElementById('prevCatBtn').onclick = () => this.navigateCategory(-1);
-        document.getElementById('nextCatBtn').onclick = () => this.navigateCategory(1);
-        document.getElementById('prevRoomBtn').onclick = () => this.navigateRoom(-1);
-        document.getElementById('nextRoomBtn').onclick = () => this.navigateRoom(1);
-        document.getElementById('joinBtn').onclick = () => this.joinRoom();
-        document.getElementById('backBtn').onclick = () => this.leaveRoom();
+        this.prevCatBtn.addEventListener('click', () => this.navigateCategory(-1));
+        this.nextCatBtn.addEventListener('click', () => this.navigateCategory(1));
+        this.prevRoomBtn.addEventListener('click', () => this.navigateRoom(-1));
+        this.nextRoomBtn.addEventListener('click', () => this.navigateRoom(1));
+        this.enterBtn.addEventListener('click', () => this.enterRoom());
         
-        // Chat actions
-        document.getElementById('sendBtn').onclick = () => this.sendMessage();
-        this.messageInput.onkeypress = (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                this.sendMessage();
-            }
-        };
-        
-        // File attachment
-        document.getElementById('attachBtn').onclick = () => {
-            document.getElementById('fileInput').click();
-        };
-        document.getElementById('fileInput').onchange = (e) => this.handleFileUpload(e);
-        
-        // Keep session alive
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && this.ws?.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify({ type: 'ping' }));
-            }
+        // Chat controls
+        this.backBtn.addEventListener('click', () => this.leaveRoom());
+        this.sendBtn.addEventListener('click', () => this.sendMessage());
+        this.messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.sendMessage();
         });
+        
+        // Handle window resize
+        window.addEventListener('resize', () => this.handleResize());
+        
+        // Prevent zoom on mobile
+        document.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 1) e.preventDefault();
+        }, { passive: false });
     }
     
-    showRoomSelector() {
-        this.splashScreen.style.display = 'none';
-        this.roomSelector.style.display = 'block';
+    setupResponsive() {
+        // Adjust status indicator position based on screen orientation
+        this.handleResize();
+    }
+    
+    handleResize() {
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const inputAreaHeight = document.querySelector('.input-area')?.offsetHeight || 70;
+        
+        if (isPortrait) {
+            // Di mode portrait, naikkan status indicator agar tidak menutupi input
+            this.statusIndicator.style.bottom = `${inputAreaHeight + 15}px`;
+        } else {
+            // Di mode landscape, kembalikan ke posisi default
+            this.statusIndicator.style.bottom = '15px';
+        }
     }
     
     navigateCategory(direction) {
         const categories = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        let index = categories.indexOf(this.currentCat) + direction;
+        let index = categories.indexOf(this.currentCategory) + direction;
         
-        if (index < 0) index = 25;
+        if (index < 0) index = categories.length - 1;
         if (index >= categories.length) index = 0;
         
-        this.currentCat = categories[index];
-        this.catDisplay.textContent = this.currentCat;
-        this.updateRoomPreview();
+        this.currentCategory = categories[index];
+        this.renderSelector();
     }
     
     navigateRoom(direction) {
@@ -100,129 +108,176 @@ class ORAPRIVCHAT {
         if (this.currentRoom < 1) this.currentRoom = 100;
         if (this.currentRoom > 100) this.currentRoom = 1;
         
-        this.roomDisplay.textContent = this.currentRoom.toString().padStart(3, '0');
-        this.updateRoomPreview();
+        this.renderSelector();
     }
     
-    updateRoomPreview() {
-        const roomId = `${this.currentCat}-${this.currentRoom.toString().padStart(3, '0')}`;
-        this.roomPreview.textContent = roomId;
+    renderSelector() {
+        this.catValue.textContent = this.currentCategory;
+        this.roomValue.textContent = this.currentRoom.toString().padStart(3, '0');
+        this.roomDisplay.textContent = `${this.currentCategory}-${this.currentRoom.toString().padStart(3, '0')}`;
+        
+        // Add animation effect
+        this.catValue.style.transform = 'scale(1.1)';
+        this.roomValue.style.transform = 'scale(1.1)';
+        
+        setTimeout(() => {
+            this.catValue.style.transform = 'scale(1)';
+            this.roomValue.style.transform = 'scale(1)';
+        }, 150);
     }
     
     connectWebSocket() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.close();
+        }
+        
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}`;
         
-        console.log('🔗 Connecting to:', wsUrl);
         this.ws = new WebSocket(wsUrl);
         
         this.ws.onopen = () => {
-            console.log('✅ WebSocket connected');
-            this.updateConnectionStatus(true, 'Connected');
+            console.log('WebSocket connected');
+            this.isConnected = true;
             this.reconnectAttempts = 0;
+            this.updateStatus(true, 'Terhubung');
             
-            // Generate user ID if not exists
-            if (!this.userId) {
-                this.userId = 'Anon-' + Math.random().toString(36).substr(2, 4).toUpperCase();
-                this.userIdDisplay.innerHTML = `<i class="fas fa-user-secret"></i> ${this.userId}`;
-            }
+            // Send initial connection info
+            this.ws.send(JSON.stringify({
+                type: 'init',
+                userId: this.userId
+            }));
         };
         
         this.ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                this.handleWebSocketMessage(data);
+                this.handleServerMessage(data);
             } catch (error) {
-                console.error('❌ Error parsing message:', error);
+                console.error('Error parsing message:', error);
             }
         };
         
-        this.ws.onclose = (event) => {
-            console.log('❌ WebSocket disconnected:', event.code, event.reason);
-            this.updateConnectionStatus(false, 'Disconnected');
+        this.ws.onclose = () => {
+            console.log('WebSocket disconnected');
+            this.isConnected = false;
+            this.updateStatus(false, 'Terputus');
             
-            // Attempt reconnection
             if (this.reconnectAttempts < this.maxReconnectAttempts) {
                 this.reconnectAttempts++;
                 const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
                 
-                console.log(`🔄 Reconnecting in ${delay/1000}s (attempt ${this.reconnectAttempts})`);
-                this.updateConnectionStatus(false, `Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-                
-                setTimeout(() => this.connectWebSocket(), delay);
-            } else {
-                this.updateConnectionStatus(false, 'Connection failed');
-                alert('Failed to connect to server. Please refresh the page.');
+                setTimeout(() => {
+                    this.connectWebSocket();
+                }, delay);
             }
         };
         
         this.ws.onerror = (error) => {
-            console.error('❌ WebSocket error:', error);
-            this.updateConnectionStatus(false, 'Connection error');
+            console.error('WebSocket error:', error);
+            this.updateStatus(false, 'Error');
         };
     }
     
-    updateConnectionStatus(connected, message) {
-        this.statusDot.className = 'status-dot' + (connected ? ' connected' : '');
-        this.statusText.innerHTML = `<i class="fas fa-wifi"></i> ${message}`;
-        
+    updateStatus(connected, text) {
         if (connected) {
-            this.connectionStatus.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+            this.statusDot.className = 'status-dot connected';
+            this.statusText.textContent = text;
+            this.statusIndicator.style.borderColor = '#0f0';
         } else {
-            this.connectionStatus.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+            this.statusDot.className = 'status-dot';
+            this.statusText.textContent = text;
+            this.statusIndicator.style.borderColor = '#f00';
         }
     }
     
-    handleWebSocketMessage(data) {
-        switch(data.type) {
+    handleServerMessage(data) {
+        switch (data.type) {
             case 'init':
-                this.userId = data.userId;
-                this.userIdDisplay.innerHTML = `<i class="fas fa-user-secret"></i> ${this.userId}`;
+                this.userId = data.userId || this.userId;
                 break;
                 
             case 'joined':
-                this.showChatInterface(data.roomId, data.userCount);
+                this.roomTitle.textContent = `Room ${data.roomId}`;
+                this.userCount.textContent = `${data.userCount} pengguna online`;
+                this.startSessionTimer();
+                this.addSystemMessage(`Anda masuk sebagai ${this.userId}`);
                 break;
                 
             case 'system':
                 this.addSystemMessage(data.message);
                 if (data.userCount !== undefined) {
-                    this.updateUserCount(data.userCount);
+                    this.userCount.textContent = `${data.userCount} pengguna online`;
                 }
                 break;
                 
             case 'message':
-                this.addChatMessage(data.userId, data.text, data.timestamp);
-                break;
-                
-            case 'media':
-                this.addMediaMessage(data.userId, data.mediaType, data.data, data.timestamp);
+                this.addMessage(
+                    data.userId === this.userId ? 'sent' : 'received',
+                    data.userId === this.userId ? 'Anda' : data.userId,
+                    data.text,
+                    data.timestamp
+                );
                 break;
                 
             case 'timeout':
                 this.leaveRoom();
-                this.showNotification('Session expired (15 minutes)');
+                this.showNotification('Sesi 15 menit berakhir');
                 break;
         }
     }
     
-    showChatInterface(roomId, userCount) {
-        this.roomSelector.style.display = 'none';
-        this.chatInterface.style.display = 'flex';
+    enterRoom() {
+        if (!this.isConnected) {
+            this.showNotification('Menunggu koneksi...');
+            return;
+        }
         
-        this.roomName.innerHTML = `<i class="fas fa-door-open"></i> ${roomId}`;
-        this.updateUserCount(userCount);
-        this.startSessionTimer();
+        const roomId = `${this.currentCategory}-${this.currentRoom.toString().padStart(3, '0')}`;
         
-        // Clear welcome message and add join message
+        this.ws.send(JSON.stringify({
+            type: 'join',
+            category: this.currentCategory,
+            room: this.currentRoom,
+            userId: this.userId
+        }));
+        
+        // Switch screens
+        this.selectorScreen.style.display = 'none';
+        this.chatScreen.style.display = 'flex';
+        
+        // Clear messages
         this.messagesContainer.innerHTML = '';
-        this.addSystemMessage(`Joined ${roomId}`);
         
-        this.messageInput.focus();
+        // Focus input
+        setTimeout(() => {
+            this.messageInput.focus();
+        }, 100);
+        
+        // Update responsive layout
+        this.handleResize();
     }
     
-    updateUserCount(count) {
-        this.userCount.innerHTML = `<i class="fas fa-users"></i> ${count} online`;
+    leaveRoom() {
+        // Switch screens
+        this.chatScreen.style.display = 'none';
+        this.selectorScreen.style.display = 'flex';
+        
+        // Stop session timer
+        if (this.sessionTimer) {
+            clearInterval(this.sessionTimer);
+            this.sessionTimer = null;
+        }
+        
+        // Reset timer display
+        this.timeLeft = 900;
+        this.updateTimerDisplay();
+        
+        // Clear input
+        this.messageInput.value = '';
+        
+        // Reset responsive layout
+        this.handleResize();
     }
     
     startSessionTimer() {
@@ -232,109 +287,42 @@ class ORAPRIVCHAT {
             clearInterval(this.sessionTimer);
         }
         
+        this.updateTimerDisplay();
+        
         this.sessionTimer = setInterval(() => {
             this.timeLeft--;
-            
-            const minutes = Math.floor(this.timeLeft / 60);
-            const seconds = this.timeLeft % 60;
-            this.timerDisplay.innerHTML = `<i class="fas fa-clock"></i> ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            this.updateTimerDisplay();
             
             if (this.timeLeft <= 0) {
                 this.leaveRoom();
-                this.showNotification('Session expired');
-            }
-            
-            // Warning at 1 minute remaining
-            if (this.timeLeft === 60) {
-                this.addSystemMessage('Session expires in 1 minute');
+                this.showNotification('Sesi 15 menit berakhir');
             }
         }, 1000);
     }
     
-    joinRoom() {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            this.showNotification('Connecting to server...');
-            return;
-        }
-        
-        const roomData = {
-            type: 'join',
-            category: this.currentCat,
-            room: this.currentRoom,
-            userId: this.userId
-        };
-        
-        this.ws.send(JSON.stringify(roomData));
-    }
-    
-    leaveRoom() {
-        if (this.sessionTimer) {
-            clearInterval(this.sessionTimer);
-            this.sessionTimer = null;
-        }
-        
-        this.chatInterface.style.display = 'none';
-        this.roomSelector.style.display = 'block';
-        this.messagesContainer.innerHTML = '';
-        this.messageInput.value = '';
-        
-        // Reset timer display
-        this.timerDisplay.innerHTML = '<i class="fas fa-clock"></i> 15:00';
+    updateTimerDisplay() {
+        const minutes = Math.floor(this.timeLeft / 60);
+        const seconds = this.timeLeft % 60;
+        this.timerElement.textContent = 
+            `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
     
     sendMessage() {
         const text = this.messageInput.value.trim();
-        if (!text || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        if (!text || !this.isConnected) return;
         
-        const messageData = {
-            type: 'message',
-            text: text
-        };
-        
-        this.ws.send(JSON.stringify(messageData));
-        
-        // Clear input
-        this.messageInput.value = '';
-        this.messageInput.focus();
-    }
-    
-    handleFileUpload(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        
-        // Check file size (max 5MB)
-        if (file.size > 5 * 1024 * 1024) {
-            this.showNotification('File too large (max 5MB)');
-            return;
-        }
-        
-        const isImage = file.type.startsWith('image/');
-        const isVideo = file.type.startsWith('video/');
-        
-        if (!isImage && !isVideo) {
-            this.showNotification('Only images and videos allowed');
-            return;
-        }
-        
-        const reader = new FileReader();
-        
-        reader.onload = (e) => {
-            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-                this.showNotification('Not connected');
-                return;
-            }
+        if (this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                type: 'message',
+                text: text,
+                userId: this.userId
+            }));
             
-            const mediaData = {
-                type: 'media',
-                mediaType: isImage ? 'image' : 'video',
-                data: e.target.result
-            };
-            
-            this.ws.send(JSON.stringify(mediaData));
-        };
-        
-        reader.readAsDataURL(file);
-        event.target.value = '';
+            this.messageInput.value = '';
+            this.messageInput.focus();
+        } else {
+            this.showNotification('Koneksi terputus');
+        }
     }
     
     addSystemMessage(text) {
@@ -346,19 +334,16 @@ class ORAPRIVCHAT {
         this.scrollToBottom();
     }
     
-    addChatMessage(sender, text, timestamp) {
+    addMessage(type, sender, text, timestamp = Date.now()) {
         const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${sender === this.userId ? 'sent' : 'received'}`;
+        messageDiv.className = `message ${type}`;
         
-        const time = new Date(timestamp || Date.now());
+        const time = new Date(timestamp);
         const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
-        
-        const displayName = sender === this.userId ? 'You' : sender;
-        const icon = sender === this.userId ? '<i class="fas fa-user"></i>' : '<i class="fas fa-user-secret"></i>';
         
         messageDiv.innerHTML = `
             <div class="message-header">
-                <span class="message-sender">${icon} ${displayName}</span>
+                <span class="message-user">${sender}</span>
                 <span class="message-time">${timeStr}</span>
             </div>
             <div class="message-content">${this.escapeHtml(text)}</div>
@@ -368,39 +353,16 @@ class ORAPRIVCHAT {
         this.scrollToBottom();
     }
     
-    addMediaMessage(sender, mediaType, data, timestamp) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${sender === this.userId ? 'sent' : 'received'}`;
-        
-        const time = new Date(timestamp || Date.now());
-        const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
-        
-        const displayName = sender === this.userId ? 'You' : sender;
-        const icon = sender === this.userId ? '<i class="fas fa-user"></i>' : '<i class="fas fa-user-secret"></i>';
-        
-        let mediaHtml = '';
-        if (mediaType === 'image') {
-            mediaHtml = `<img src="${data}" alt="Image">`;
-        } else if (mediaType === 'video') {
-            mediaHtml = `<video controls><source src="${data}" type="video/mp4"></video>`;
-        }
-        
-        messageDiv.innerHTML = `
-            <div class="message-header">
-                <span class="message-sender">${icon} ${displayName}</span>
-                <span class="message-time">${timeStr}</span>
-            </div>
-            <div class="message-content">
-                ${mediaHtml}
-            </div>
-        `;
-        
-        this.messagesContainer.appendChild(messageDiv);
-        this.scrollToBottom();
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
     
     scrollToBottom() {
-        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        setTimeout(() => {
+            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        }, 100);
     }
     
     showNotification(message) {
@@ -411,49 +373,47 @@ class ORAPRIVCHAT {
         notification.style.cssText = `
             position: fixed;
             top: 20px;
-            right: 20px;
-            background: rgba(30, 30, 30, 0.95);
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            border-left: 4px solid #6366f1;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            z-index: 1000;
-            animation: slideIn 0.3s ease;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: #0f0;
+            padding: 12px 24px;
+            border-radius: 25px;
+            border: 1px solid #0f0;
+            z-index: 10000;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            animation: slideDown 0.3s ease;
         `;
         
         document.body.appendChild(notification);
         
         // Remove after 3 seconds
         setTimeout(() => {
-            notification.style.animation = 'slideOut 0.3s ease';
-            setTimeout(() => notification.remove(), 300);
+            notification.style.animation = 'slideUp 0.3s ease';
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 300);
         }, 3000);
-    }
-    
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
     }
 }
 
 // Initialize app when page loads
 document.addEventListener('DOMContentLoaded', () => {
-    // Add notification animation styles
+    // Add CSS animations
     const style = document.createElement('style');
     style.textContent = `
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
+        @keyframes slideDown {
+            from { transform: translate(-50%, -20px); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
         }
-        @keyframes slideOut {
-            from { transform: translateX(0); opacity: 1; }
-            to { transform: translateX(100%); opacity: 0; }
+        @keyframes slideUp {
+            from { transform: translate(-50%, 0); opacity: 1; }
+            to { transform: translate(-50%, -20px); opacity: 0; }
         }
     `;
     document.head.appendChild(style);
     
     // Start the app
-    window.chatApp = new ORAPRIVCHAT();
+    window.chatApp = new PrivateChat();
 });
