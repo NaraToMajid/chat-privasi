@@ -2,233 +2,148 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ORAPRIVCHAT</title>
-    <!-- Font Awesome -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Privasi</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Poppins Font -->
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="app">
-        <!-- Selector Screen -->
-        <div class="screen selector-screen active" id="selectorScreen">
-            <div class="selector-container">
-                <div class="brand-section">
-                    <div class="brand-logo">
-                        <i class="fas fa-lock"></i>
-                    </div>
-                    <h1 class="brand-title">PRIVATE CHAT</h1>
-                    <p class="brand-subtitle">End-to-End Encrypted • 15 Minute Sessions</p>
-                </div>
+    <!-- Status Koneksi -->
+    <div class="status-indicator">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Menyambung...</span>
+    </div>
 
-                <div class="room-selector">
-                    <div class="selector-group">
-                        <div class="selector-label">
-                            <i class="fas fa-folder"></i>
-                            <span>KATEGORI</span>
-                        </div>
-                        <div class="selector-controls">
-                            <button class="selector-btn prev-btn" id="prevCat">
-                                <i class="fas fa-chevron-left"></i>
-                            </button>
-                            <div class="selector-value-box">
-                                <div class="selector-value" id="catValue">A</div>
-                                <div class="selector-hint">Alphabet</div>
-                            </div>
-                            <button class="selector-btn next-btn" id="nextCat">
-                                <i class="fas fa-chevron-right"></i>
-                            </button>
-                        </div>
+    <!-- Layar Pemilihan Room -->
+    <div class="screen-selector active" id="screenSelector">
+        <div class="selector-container">
+            <div class="logo">
+                <i class="fas fa-comments"></i>
+                <h1>Chat Privasi</h1>
+                <p class="tagline">100% Anonim • 15 Menit Sesi</p>
+            </div>
+            
+            <div class="selection-area">
+                <div class="selection-group">
+                    <div class="selection-label">
+                        <i class="fas fa-folder"></i>
+                        <span>KATEGORI</span>
                     </div>
-
-                    <div class="selector-group">
-                        <div class="selector-label">
-                            <i class="fas fa-door-closed"></i>
-                            <span>NOMOR ROOM</span>
-                        </div>
-                        <div class="selector-controls">
-                            <button class="selector-btn prev-btn" id="prevRoom">
-                                <i class="fas fa-chevron-left"></i>
-                            </button>
-                            <div class="selector-value-box">
-                                <div class="selector-value" id="roomValue">001</div>
-                                <div class="selector-hint">001-100</div>
-                            </div>
-                            <button class="selector-btn next-btn" id="nextRoom">
-                                <i class="fas fa-chevron-right"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="selected-room-info">
-                        <div class="room-badge">
-                            <i class="fas fa-hashtag"></i>
-                            <span id="roomDisplay">A-001</span>
-                        </div>
-                        <div class="room-features">
-                            <span><i class="fas fa-clock"></i> 15 Menit</span>
-                            <span><i class="fas fa-trash"></i> Auto-Delete</span>
-                            <span><i class="fas fa-shield-alt"></i> Enkripsi</span>
-                        </div>
+                    <div class="selection-display">
+                        <button class="nav-btn" id="prevCategory">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <div class="selection-value" id="categoryValue">A</div>
+                        <button class="nav-btn" id="nextCategory">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
                     </div>
                 </div>
-
-                <button class="action-btn enter-btn" id="enterBtn">
-                    <span>MASUK KE ROOM</span>
+                
+                <div class="selection-group">
+                    <div class="selection-label">
+                        <i class="fas fa-door-closed"></i>
+                        <span>ROOM</span>
+                    </div>
+                    <div class="selection-display">
+                        <button class="nav-btn" id="prevRoom">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <div class="selection-value" id="roomValue">001</div>
+                        <button class="nav-btn" id="nextRoom">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <button class="enter-btn" id="enterBtn">
                     <i class="fas fa-sign-in-alt"></i>
+                    MASUK CHAT
                 </button>
+                
+                <div class="info-box">
+                    <i class="fas fa-info-circle"></i>
+                    <p>Percakapan akan otomatis terhapus setelah 15 menit. Tidak ada riwayat yang disimpan.</p>
+                </div>
             </div>
         </div>
+    </div>
 
-        <!-- Chat Screen -->
-        <div class="screen chat-screen" id="chatScreen">
-            <!-- Chat Header -->
-            <div class="chat-header">
-                <button class="header-btn back-btn" id="backBtn" title="Keluar">
+    <!-- Layar Chat -->
+    <div class="chat-screen" id="chatScreen">
+        <div class="chat-header">
+            <div class="header-left">
+                <button class="back-btn" id="backBtn">
                     <i class="fas fa-arrow-left"></i>
                 </button>
-                
-                <div class="room-header-info">
-                    <div class="room-header-title" id="roomTitle">
-                        <i class="fas fa-hashtag"></i>
-                        <span>Room A-001</span>
-                    </div>
-                    <div class="room-header-stats">
-                        <span class="user-count" id="userCount">
-                            <i class="fas fa-user"></i>
-                            <span>1</span>
-                        </span>
-                        <span class="connection-status connected">
-                            <i class="fas fa-circle"></i>
-                            <span>Connected</span>
-                        </span>
-                    </div>
-                </div>
-                
-                <div class="session-timer">
-                    <i class="fas fa-hourglass-half"></i>
-                    <span id="timer">15:00</span>
+                <div class="room-info">
+                    <div class="room-title" id="roomTitle">Room A-001</div>
+                    <div class="room-stats" id="roomStats">0 pengguna online</div>
                 </div>
             </div>
-
-            <!-- Reply Preview -->
-            <div class="reply-preview" id="replyPreview">
-                <div class="reply-content">
-                    <div class="reply-info">
-                        <span class="reply-label">Membalas:</span>
-                        <span class="reply-sender" id="replySender">User123</span>
+            <div class="header-right">
+                <div class="session-timer" id="sessionTimer">15:00</div>
+                <div class="user-id-display" id="userIdDisplay">Anonim</div>
+            </div>
+        </div>
+        
+        <div class="messages-container" id="messagesContainer">
+            <!-- Pesan akan dimasukkan di sini secara dinamis -->
+            <div class="welcome-message">
+                <div class="message system">
+                    <div class="message-content">
+                        <i class="fas fa-shield-alt"></i>
+                        Selamat datang di Chat Privasi. Percakapan Anda aman dan anonim.
                     </div>
-                    <div class="reply-text" id="replyText">Pesan yang direply...</div>
                 </div>
-                <button class="reply-cancel" id="cancelReply" title="Cancel reply">
-                    <i class="fas fa-times"></i>
+            </div>
+        </div>
+        
+        <div class="input-area">
+            <div class="input-tools">
+                <button class="tool-btn" id="mediaBtn" title="Unggah Gambar">
+                    <i class="fas fa-image"></i>
                 </button>
+                <button class="tool-btn" id="replyBtn" title="Balas Pesan">
+                    <i class="fas fa-reply"></i>
+                </button>
+                <input type="file" id="fileInput" accept="image/*" style="display: none;">
             </div>
-
-            <!-- Messages Container -->
-            <div class="messages-container" id="messagesContainer">
-                <!-- Welcome message -->
-                <div class="message-group welcome-message">
-                    <div class="message system">
-                        <div class="message-content">
-                            <div class="welcome-icon">
-                                <i class="fas fa-comments"></i>
-                            </div>
-                            <h3>Selamat Datang di Chat Privasi</h3>
-                            <p>Semua pesan dan file akan terhapus otomatis dalam 15 menit</p>
-                            <div class="welcome-features">
-                                <span><i class="fas fa-reply"></i> Reply pesan</span>
-                                <span><i class="fas fa-image"></i> Upload foto/video (5MB)</span>
-                                <span><i class="fas fa-clock"></i> Sesi 15 menit</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Upload Preview -->
-            <div class="upload-preview" id="uploadPreview">
-                <div class="preview-content">
-                    <div class="preview-header">
-                        <i class="fas fa-image"></i>
-                        <span>Foto Terpilih</span>
-                        <button class="preview-remove" id="removePreview">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    <div class="preview-image" id="previewImage">
-                        <!-- Image preview will be inserted here -->
-                    </div>
-                    <div class="preview-caption">
-                        <input type="text" 
-                               class="caption-input" 
-                               id="captionInput" 
-                               placeholder="Tambahkan caption (opsional)..."
-                               maxlength="200">
-                        <div class="caption-counter">
-                            <span id="captionCount">0</span>/200
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Input Area -->
-            <div class="input-area" id="inputArea">
-                <div class="input-tools">
-                    <button class="tool-btn attach-btn" id="attachBtn" title="Lampirkan file">
-                        <i class="fas fa-paperclip"></i>
-                    </button>
-                    <input type="file" 
-                           id="fileInput" 
-                           accept="image/*,video/*" 
-                           style="display: none;">
-                    
-                    <button class="tool-btn emoji-btn" id="emojiBtn" title="Emoji">
-                        <i class="far fa-smile"></i>
+            <div class="message-input-wrapper">
+                <input type="text" class="message-input" id="messageInput" placeholder="Ketik pesan...">
+                <div class="reply-preview" id="replyPreview">
+                    <span class="reply-text"></span>
+                    <button class="cancel-reply" id="cancelReply">
+                        <i class="fas fa-times"></i>
                     </button>
                 </div>
-
-                <div class="message-input-wrapper">
-                    <textarea class="message-input" 
-                              id="messageInput" 
-                              placeholder="Ketik pesan..." 
-                              rows="1"
-                              maxlength="1000"></textarea>
-                    <div class="input-actions">
-                        <button class="send-btn" id="sendBtn" title="Kirim pesan">
-                            <i class="fas fa-paper-plane"></i>
-                        </button>
-                    </div>
-                </div>
             </div>
-        </div>
-    </div>
-
-    <!-- Connection Status -->
-    <div class="connection-status-bar" id="connectionStatus">
-        <div class="status-content">
-            <i class="fas fa-wifi status-icon"></i>
-            <span class="status-text">Connecting...</span>
-        </div>
-    </div>
-
-    <!-- Emoji Picker (Hidden by default) -->
-    <div class="emoji-picker" id="emojiPicker">
-        <div class="emoji-header">
-            <span>Pilih Emoji</span>
-            <button class="emoji-close" id="closeEmoji">
-                <i class="fas fa-times"></i>
+            <button class="send-btn" id="sendBtn">
+                <i class="fas fa-paper-plane"></i>
             </button>
         </div>
-        <div class="emoji-grid" id="emojiGrid">
-            <!-- Emojis will be inserted here -->
-        </div>
     </div>
 
-    <!-- Notification Toast -->
-    <div class="toast" id="toast"></div>
+    <!-- Modal untuk gambar -->
+    <div class="modal" id="imageModal">
+        <div class="modal-content">
+            <button class="modal-close" id="modalClose">
+                <i class="fas fa-times"></i>
+            </button>
+            <img id="modalImage" src="" alt="Gambar">
+            <div class="modal-actions">
+                <button class="modal-btn" id="downloadBtn">
+                    <i class="fas fa-download"></i> Unduh
+                </button>
+                <button class="modal-btn" id="closeModalBtn">
+                    <i class="fas fa-times"></i> Tutup
+                </button>
+            </div>
+        </div>
+    </div>
 
     <script src="script.js"></script>
 </body>
