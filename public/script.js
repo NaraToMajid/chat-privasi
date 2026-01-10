@@ -1,3 +1,5 @@
+[file name]: deepseek_javascript_20260110_58b93c.js
+[file content begin]
 class PrivateChatPro {
     constructor() {
         // User & Room Configuration
@@ -42,6 +44,7 @@ class PrivateChatPro {
         this.connectWebSocket();
         this.setupEmojiPicker();
         this.preventZoom();
+        this.updateUserIdDisplay();
     }
     
     cacheElements() {
@@ -92,6 +95,9 @@ class PrivateChatPro {
         this.emojiPicker = document.getElementById('emojiPicker');
         this.emojiGrid = document.getElementById('emojiGrid');
         this.closeEmojiBtn = document.getElementById('closeEmoji');
+        
+        // User ID Display
+        this.userIdDisplay = document.getElementById('userIdDisplay');
     }
     
     bindEvents() {
@@ -247,60 +253,80 @@ class PrivateChatPro {
         this.roomDisplay.textContent = `${this.currentCategory}-${this.currentRoom.toString().padStart(3, '0')}`;
     }
     
+    updateUserIdDisplay() {
+        if (this.userIdDisplay) {
+            this.userIdDisplay.textContent = this.userId;
+        }
+    }
+    
     connectWebSocket() {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             return;
         }
         
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}`;
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
         
-        this.ws = new WebSocket(wsUrl);
-        
-        this.ws.onopen = () => {
-            console.log('✓ WebSocket connected');
-            this.isConnected = true;
-            this.reconnectAttempts = 0;
-            this.updateConnectionStatus(true);
+        try {
+            this.ws = new WebSocket(wsUrl);
+            console.log('Attempting to connect to WebSocket:', wsUrl);
             
-            // Send user info
-            this.ws.send(JSON.stringify({
-                type: 'user_info',
-                userId: this.userId,
-                username: this.username
-            }));
+            this.ws.onopen = () => {
+                console.log('✓ WebSocket connected successfully');
+                this.isConnected = true;
+                this.reconnectAttempts = 0;
+                this.updateConnectionStatus(true);
+                this.showToast('Connected to server');
+                
+                // Start ping interval
+                this.startPing();
+            };
             
-            // Start ping interval
-            this.startPing();
-        };
-        
-        this.ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                this.handleServerMessage(data);
-            } catch (error) {
-                console.error('Error parsing message:', error);
-                this.showToast('Error processing message');
-            }
-        };
-        
-        this.ws.onclose = () => {
-            console.log('✗ WebSocket disconnected');
-            this.isConnected = false;
-            this.updateConnectionStatus(false);
+            this.ws.onmessage = (event) => {
+                try {
+                    console.log('Received WebSocket message:', event.data);
+                    const data = JSON.parse(event.data);
+                    this.handleServerMessage(data);
+                } catch (error) {
+                    console.error('Error parsing message:', error, 'Raw data:', event.data);
+                    this.showToast('Error processing message');
+                }
+            };
             
-            if (this.pingInterval) {
-                clearInterval(this.pingInterval);
-                this.pingInterval = null;
-            }
+            this.ws.onclose = (event) => {
+                console.log('✗ WebSocket disconnected:', event.code, event.reason);
+                this.isConnected = false;
+                this.updateConnectionStatus(false);
+                
+                if (this.pingInterval) {
+                    clearInterval(this.pingInterval);
+                    this.pingInterval = null;
+                }
+                
+                if (!event.wasClean) {
+                    this.scheduleReconnect();
+                }
+            };
             
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                this.updateConnectionStatus(false);
+                this.showToast('Connection error');
+            };
+            
+            // Add event listener for testing
+            window.testWebSocket = () => {
+                console.log('WebSocket state:', this.ws.readyState);
+                console.log('Is connected:', this.isConnected);
+                console.log('Current room:', this.roomId);
+                console.log('Session active:', this.sessionActive);
+            };
+            
+        } catch (error) {
+            console.error('Failed to create WebSocket:', error);
+            this.showToast('Failed to connect to server');
             this.scheduleReconnect();
-        };
-        
-        this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            this.updateConnectionStatus(false);
-        };
+        }
     }
     
     startPing() {
@@ -310,7 +336,13 @@ class PrivateChatPro {
         
         this.pingInterval = setInterval(() => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify({ type: 'ping' }));
+                const pingMessage = { 
+                    type: 'ping',
+                    timestamp: Date.now(),
+                    userId: this.userId
+                };
+                this.ws.send(JSON.stringify(pingMessage));
+                console.log('Sent ping');
             }
         }, 25000); // Ping every 25 seconds
     }
@@ -324,6 +356,8 @@ class PrivateChatPro {
         this.reconnectAttempts++;
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
         
+        console.log(`Scheduling reconnect attempt ${this.reconnectAttempts} in ${delay}ms`);
+        
         setTimeout(() => {
             if (!this.isConnected) {
                 this.connectWebSocket();
@@ -332,6 +366,8 @@ class PrivateChatPro {
     }
     
     updateConnectionStatus(connected) {
+        if (!this.connectionStatus) return;
+        
         const statusIcon = this.connectionStatus.querySelector('.status-icon');
         const statusText = this.connectionStatus.querySelector('.status-text');
         
@@ -341,16 +377,20 @@ class PrivateChatPro {
             statusIcon.classList.add('fa-check-circle');
             statusText.textContent = 'Connected';
             this.connectionStatus.style.borderColor = 'var(--success)';
+            this.connectionStatus.style.opacity = '0.8';
         } else {
             statusIcon.className = 'status-icon';
             statusIcon.classList.remove('fa-check-circle');
             statusIcon.classList.add('fa-wifi');
             statusText.textContent = 'Connecting...';
             this.connectionStatus.style.borderColor = 'var(--error)';
+            this.connectionStatus.style.opacity = '0.6';
         }
     }
     
     handleServerMessage(data) {
+        console.log('Processing server message:', data);
+        
         switch (data.type) {
             case 'room_joined':
                 this.handleRoomJoined(data);
@@ -377,22 +417,33 @@ class PrivateChatPro {
                 break;
                 
             case 'error':
-                this.showToast(data.message);
+                this.showToast(data.message || 'An error occurred');
                 break;
                 
-            case 'upload_progress':
-                this.updateUploadProgress(data.progress);
+            case 'pong':
+                console.log('Received pong from server');
                 break;
                 
-            case 'upload_complete':
-                this.handleUploadComplete(data);
+            case 'ack':
+                // Message acknowledged by server
+                console.log('Message acknowledged by server:', data.messageId);
+                this.removeSendingIndicator(data.tempId);
                 break;
+                
+            case 'notification':
+                this.showToast(data.message, 3000);
+                break;
+                
+            default:
+                console.warn('Unknown message type:', data.type);
         }
     }
     
     handleRoomJoined(data) {
         this.roomId = data.roomId;
-        this.roomTitle.querySelector('span').textContent = `Room ${data.roomId}`;
+        if (this.roomTitle && this.roomTitle.querySelector('span')) {
+            this.roomTitle.querySelector('span').textContent = `Room ${data.roomId}`;
+        }
         this.sessionActive = true;
         this.startSessionTimer();
         this.showToast(`Joined room ${data.roomId}`);
@@ -402,20 +453,36 @@ class PrivateChatPro {
     }
     
     enterRoom() {
-        if (!this.isConnected) {
-            this.showToast('Connecting to server...');
+        console.log('Enter room button clicked');
+        
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.showToast('Not connected to server. Connecting...');
+            this.connectWebSocket();
+            setTimeout(() => this.enterRoom(), 1000);
             return;
         }
         
         const roomId = `${this.currentCategory}-${this.currentRoom.toString().padStart(3, '0')}`;
+        console.log('Joining room:', roomId);
         
-        this.ws.send(JSON.stringify({
+        const joinMessage = {
             type: 'join_room',
             category: this.currentCategory,
             room: this.currentRoom,
             userId: this.userId,
-            username: this.username
-        }));
+            username: this.username,
+            timestamp: Date.now()
+        };
+        
+        console.log('Sending join message:', joinMessage);
+        
+        try {
+            this.ws.send(JSON.stringify(joinMessage));
+        } catch (error) {
+            console.error('Failed to send join message:', error);
+            this.showToast('Failed to join room');
+            return;
+        }
         
         // Switch screens
         this.selectorScreen.classList.remove('active');
@@ -424,9 +491,17 @@ class PrivateChatPro {
         // Clear messages
         this.messagesContainer.innerHTML = '';
         
+        // Show temporary message
+        this.displaySystemMessage({
+            type: 'system',
+            text: 'Joining room...'
+        });
+        
         // Focus input
         setTimeout(() => {
-            this.messageInput.focus();
+            if (this.messageInput) {
+                this.messageInput.focus();
+            }
         }, 300);
         
         // Update layout
@@ -434,11 +509,20 @@ class PrivateChatPro {
     }
     
     leaveRoom() {
-        if (this.sessionActive) {
-            this.ws.send(JSON.stringify({
-                type: 'leave_room',
-                userId: this.userId
-            }));
+        console.log('Leaving room');
+        
+        if (this.sessionActive && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            try {
+                const leaveMessage = {
+                    type: 'leave_room',
+                    userId: this.userId,
+                    roomId: this.roomId,
+                    timestamp: Date.now()
+                };
+                this.ws.send(JSON.stringify(leaveMessage));
+            } catch (error) {
+                console.error('Failed to send leave message:', error);
+            }
         }
         
         // Switch screens
@@ -447,6 +531,7 @@ class PrivateChatPro {
         
         // Reset session
         this.sessionActive = false;
+        this.roomId = null;
         this.stopSessionTimer();
         this.timeLeft = 900;
         this.updateTimerDisplay();
@@ -454,11 +539,15 @@ class PrivateChatPro {
         // Clear states
         this.cancelReply();
         this.clearUploadPreview();
-        this.messageInput.value = '';
-        this.autoResizeTextarea();
+        if (this.messageInput) {
+            this.messageInput.value = '';
+            this.autoResizeTextarea();
+        }
         
         // Update layout
         this.updateLayout();
+        
+        console.log('Left room successfully');
     }
     
     startSessionTimer() {
@@ -489,6 +578,8 @@ class PrivateChatPro {
     }
     
     updateTimerDisplay() {
+        if (!this.timerElement) return;
+        
         const minutes = Math.floor(this.timeLeft / 60);
         const seconds = this.timeLeft % 60;
         this.timerElement.textContent = 
@@ -496,7 +587,9 @@ class PrivateChatPro {
     }
     
     updateUserCount(count) {
-        this.userCount.querySelector('span').textContent = count;
+        if (this.userCount && this.userCount.querySelector('span')) {
+            this.userCount.querySelector('span').textContent = count;
+        }
     }
     
     handleKeydown(e) {
@@ -517,6 +610,8 @@ class PrivateChatPro {
     }
     
     autoResizeTextarea() {
+        if (!this.messageInput) return;
+        
         const textarea = this.messageInput;
         textarea.style.height = 'auto';
         const newHeight = Math.min(textarea.scrollHeight, 100);
@@ -530,116 +625,146 @@ class PrivateChatPro {
     }
     
     sendMessage() {
-        const text = this.messageInput.value.trim();
+        console.log('Send message called');
+        
+        const text = this.messageInput ? this.messageInput.value.trim() : '';
         const hasFile = this.uploadedFile !== null;
         
         if (!text && !hasFile) {
+            console.log('No content to send');
             return;
         }
         
-        if (!this.isConnected || !this.sessionActive) {
-            this.showToast('Not connected or session inactive');
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.showToast('Not connected to server');
+            console.error('WebSocket not connected. State:', this.ws ? this.ws.readyState : 'no ws');
             return;
         }
+        
+        if (!this.sessionActive) {
+            this.showToast('Please join a room first');
+            return;
+        }
+        
+        const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         
         const messageData = {
             type: hasFile ? 'upload_media' : (this.replyingTo ? 'reply' : 'message'),
+            id: messageId,
             userId: this.userId,
             username: this.username,
             timestamp: Date.now(),
-            replyTo: this.replyingTo,
             roomId: this.roomId
         };
         
+        // Add reply data if exists
+        if (this.replyingTo) {
+            messageData.replyTo = {
+                id: this.replyingTo.id,
+                username: this.replyingTo.sender,
+                text: this.replyingTo.text
+            };
+        }
+        
         if (hasFile) {
-            // Send file with caption
-            messageData.file = this.uploadedFile;
-            messageData.caption = this.captionInput.value.trim();
-            messageData.fileName = this.uploadedFile.name;
-            messageData.fileSize = this.uploadedFile.size;
-            messageData.fileType = this.uploadedFile.type;
-            
-            // Show upload progress
-            this.showUploadProgress();
-            
-            // Simulate upload (in real app, this would be actual upload)
-            this.simulateFileUpload(messageData);
+            // Handle file upload
+            this.handleFileUpload(messageData);
         } else {
             // Send text message
             messageData.text = text;
             
-            if (this.ws.readyState === WebSocket.OPEN) {
+            try {
+                console.log('Sending message:', messageData);
                 this.ws.send(JSON.stringify(messageData));
                 
+                // Display message locally immediately
+                this.displayMessage({
+                    ...messageData,
+                    type: 'sent'
+                });
+                
                 // Clear input and states
-                this.messageInput.value = '';
-                this.autoResizeTextarea();
+                if (this.messageInput) {
+                    this.messageInput.value = '';
+                    this.autoResizeTextarea();
+                }
                 this.cancelReply();
                 
-                // Show sending indicator
-                this.showSendingIndicator();
+                console.log('Message sent successfully');
+                
+            } catch (error) {
+                console.error('Failed to send message:', error);
+                this.showToast('Failed to send message');
             }
         }
     }
     
-    showSendingIndicator() {
-        const tempId = 'temp_' + Date.now();
-        const tempMessage = {
-            id: tempId,
-            type: 'sent',
-            username: this.username,
-            text: this.messageInput.value.trim(),
-            timestamp: Date.now()
-        };
+    handleFileUpload(messageData) {
+        if (!this.uploadedFile) return;
         
-        if (this.replyingTo) {
-            tempMessage.replyTo = this.replyingTo;
-        }
+        const reader = new FileReader();
         
-        this.displayMessage(tempMessage);
-    }
-    
-    simulateFileUpload(messageData) {
-        let progress = 0;
-        const interval = setInterval(() => {
-            progress += 10;
-            this.updateUploadProgress(progress);
+        reader.onload = (e) => {
+            messageData.file = {
+                name: this.uploadedFile.name,
+                type: this.uploadedFile.type,
+                size: this.uploadedFile.size,
+                data: e.target.result // Base64 encoded
+            };
             
-            if (progress >= 100) {
-                clearInterval(interval);
+            if (this.captionInput) {
+                messageData.caption = this.captionInput.value.trim();
+            }
+            
+            try {
+                console.log('Sending file message:', { ...messageData, file: { ...messageData.file, data: '[BASE64_DATA]' } });
+                this.ws.send(JSON.stringify(messageData));
                 
-                // Upload complete
-                if (this.ws.readyState === WebSocket.OPEN) {
-                    this.ws.send(JSON.stringify(messageData));
-                }
+                // Display message locally
+                this.displayMediaMessage({
+                    ...messageData,
+                    type: 'sent',
+                    fileUrl: e.target.result,
+                    fileName: this.uploadedFile.name
+                });
                 
                 // Clear states
                 this.clearUploadPreview();
-                this.messageInput.value = '';
-                this.autoResizeTextarea();
+                if (this.messageInput) {
+                    this.messageInput.value = '';
+                    this.autoResizeTextarea();
+                }
                 this.cancelReply();
                 
-                this.showToast('File uploaded successfully');
+                console.log('File sent successfully');
+                
+            } catch (error) {
+                console.error('Failed to send file:', error);
+                this.showToast('Failed to send file');
             }
-        }, 100);
+        };
+        
+        reader.onerror = (error) => {
+            console.error('Failed to read file:', error);
+            this.showToast('Failed to process file');
+        };
+        
+        reader.readAsDataURL(this.uploadedFile);
     }
     
-    showUploadProgress() {
-        // This would show actual upload progress UI
-        console.log('Upload starting...');
-    }
-    
-    updateUploadProgress(progress) {
-        // Update progress bar UI
-        const progressBar = document.querySelector('.progress-fill');
-        if (progressBar) {
-            progressBar.style.width = `${progress}%`;
+    removeSendingIndicator(tempId) {
+        // Remove temporary message indicator
+        const tempElement = document.querySelector(`[data-temp-id="${tempId}"]`);
+        if (tempElement) {
+            tempElement.remove();
         }
     }
     
     handleFileSelect(event) {
         const file = event.target.files[0];
         if (!file) return;
+        
+        console.log('File selected:', file.name, file.type, file.size);
         
         // Validate file size
         if (file.size > this.maxFileSize) {
@@ -666,39 +791,55 @@ class PrivateChatPro {
     }
     
     showFilePreview(file) {
+        if (!this.uploadPreview) return;
+        
         this.uploadPreview.classList.add('active');
         
         // Create preview
         if (file.type.startsWith('image/')) {
             const reader = new FileReader();
             reader.onload = (e) => {
-                this.previewImage.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+                if (this.previewImage) {
+                    this.previewImage.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+                }
             };
             reader.readAsDataURL(file);
         } else if (file.type.startsWith('video/')) {
-            this.previewImage.innerHTML = `
-                <div class="video-preview">
-                    <i class="fas fa-video"></i>
-                    <span>${file.name}</span>
-                </div>
-            `;
+            if (this.previewImage) {
+                this.previewImage.innerHTML = `
+                    <div class="video-preview">
+                        <i class="fas fa-video"></i>
+                        <span>${file.name}</span>
+                    </div>
+                `;
+            }
         }
         
         // Focus caption input
         setTimeout(() => {
-            this.captionInput.focus();
+            if (this.captionInput) {
+                this.captionInput.focus();
+            }
         }, 100);
     }
     
     clearUploadPreview() {
         this.uploadedFile = null;
-        this.uploadPreview.classList.remove('active');
-        this.previewImage.innerHTML = '';
-        this.captionInput.value = '';
-        this.updateCaptionCounter();
+        if (this.uploadPreview) {
+            this.uploadPreview.classList.remove('active');
+        }
+        if (this.previewImage) {
+            this.previewImage.innerHTML = '';
+        }
+        if (this.captionInput) {
+            this.captionInput.value = '';
+            this.updateCaptionCounter();
+        }
     }
     
     updateCaptionCounter() {
+        if (!this.captionInput || !this.captionCount) return;
+        
         const length = this.captionInput.value.length;
         this.captionCount.textContent = length;
         
@@ -712,6 +853,8 @@ class PrivateChatPro {
     }
     
     setupEmojiPicker() {
+        if (!this.emojiGrid) return;
+        
         // Common emojis
         const emojis = ['😀', '😂', '🥰', '😎', '🤔', '😱', '👍', '👎', '❤️', '🔥', '🎉', '🙏', '💯', '👋', '🤝', '💪', '🧠', '✨', '🌟', '📸', '🎥', '🔒', '⏰', '🚀'];
         
@@ -726,6 +869,8 @@ class PrivateChatPro {
     }
     
     toggleEmojiPicker() {
+        if (!this.emojiPicker) return;
+        
         this.emojiPickerActive = !this.emojiPickerActive;
         this.emojiPicker.classList.toggle('active', this.emojiPickerActive);
         
@@ -735,11 +880,15 @@ class PrivateChatPro {
     }
     
     hideEmojiPicker() {
+        if (!this.emojiPicker) return;
+        
         this.emojiPickerActive = false;
         this.emojiPicker.classList.remove('active');
     }
     
     insertEmoji(emoji) {
+        if (!this.messageInput) return;
+        
         const textarea = this.messageInput;
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
@@ -755,25 +904,36 @@ class PrivateChatPro {
     
     // Reply System
     setupReply(messageId, sender, text) {
-        this.replyingTo = messageId;
-        this.replySender.textContent = sender;
-        this.replyText.textContent = text.length > 50 ? text.substring(0, 50) + '...' : text;
-        this.replyPreview.classList.add('active');
+        this.replyingTo = { id: messageId, sender: sender, text: text };
+        
+        if (this.replySender && this.replyText && this.replyPreview) {
+            this.replySender.textContent = sender;
+            this.replyText.textContent = text.length > 50 ? text.substring(0, 50) + '...' : text;
+            this.replyPreview.classList.add('active');
+        }
         
         // Scroll reply preview into view
-        this.replyPreview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (this.replyPreview) {
+            this.replyPreview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
         
         // Focus message input
-        this.messageInput.focus();
+        if (this.messageInput) {
+            this.messageInput.focus();
+        }
     }
     
     cancelReply() {
         this.replyingTo = null;
-        this.replyPreview.classList.remove('active');
+        if (this.replyPreview) {
+            this.replyPreview.classList.remove('active');
+        }
     }
     
     // Message Display
     displayMessage(data) {
+        if (!this.messagesContainer) return;
+        
         const messageGroup = document.createElement('div');
         messageGroup.className = `message-group ${data.type}`;
         
@@ -789,12 +949,14 @@ class PrivateChatPro {
                         <span class="message-sender">${data.username}</span>
                         <span class="message-time">${this.formatTime(data.timestamp)}</span>
                     </div>
+                    ${data.type === 'received' ? `
                     <div class="message-actions">
                         <button class="action-btn-small reply-btn" data-message-id="${data.id}" data-sender="${data.username}" data-text="${this.escapeHtml(data.text || '')}">
                             <i class="fas fa-reply"></i>
                             <span>Reply</span>
                         </button>
                     </div>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -803,18 +965,22 @@ class PrivateChatPro {
         this.scrollToBottom();
         
         // Add reply event listener
-        const replyBtn = messageGroup.querySelector('.reply-btn');
-        if (replyBtn) {
-            replyBtn.addEventListener('click', (e) => {
-                const messageId = e.currentTarget.dataset.messageId;
-                const sender = e.currentTarget.dataset.sender;
-                const text = e.currentTarget.dataset.text;
-                this.setupReply(messageId, sender, text);
-            });
+        if (data.type === 'received') {
+            const replyBtn = messageGroup.querySelector('.reply-btn');
+            if (replyBtn) {
+                replyBtn.addEventListener('click', (e) => {
+                    const messageId = e.currentTarget.dataset.messageId;
+                    const sender = e.currentTarget.dataset.sender;
+                    const text = e.currentTarget.dataset.text;
+                    this.setupReply(messageId, sender, text);
+                });
+            }
         }
     }
     
     displayReply(data) {
+        if (!this.messagesContainer) return;
+        
         const messageGroup = document.createElement('div');
         messageGroup.className = `message-group ${data.type}`;
         
@@ -827,12 +993,14 @@ class PrivateChatPro {
                         <span class="message-sender">${data.username}</span>
                         <span class="message-time">${this.formatTime(data.timestamp)}</span>
                     </div>
+                    ${data.type === 'received' ? `
                     <div class="message-actions">
                         <button class="action-btn-small reply-btn" data-message-id="${data.id}" data-sender="${data.username}" data-text="${this.escapeHtml(data.text)}">
                             <i class="fas fa-reply"></i>
                             <span>Reply</span>
                         </button>
                     </div>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -841,23 +1009,29 @@ class PrivateChatPro {
         this.scrollToBottom();
         
         // Add reply event listener
-        const replyBtn = messageGroup.querySelector('.reply-btn');
-        if (replyBtn) {
-            replyBtn.addEventListener('click', (e) => {
-                const messageId = e.currentTarget.dataset.messageId;
-                const sender = e.currentTarget.dataset.sender;
-                const text = e.currentTarget.dataset.text;
-                this.setupReply(messageId, sender, text);
-            });
+        if (data.type === 'received') {
+            const replyBtn = messageGroup.querySelector('.reply-btn');
+            if (replyBtn) {
+                replyBtn.addEventListener('click', (e) => {
+                    const messageId = e.currentTarget.dataset.messageId;
+                    const sender = e.currentTarget.dataset.sender;
+                    const text = e.currentTarget.dataset.text;
+                    this.setupReply(messageId, sender, text);
+                });
+            }
         }
     }
     
     displayMediaMessage(data) {
+        if (!this.messagesContainer) return;
+        
         const messageGroup = document.createElement('div');
         messageGroup.className = `message-group ${data.type}`;
         
         const hasReply = data.replyTo && typeof data.replyTo === 'object';
-        const isImage = data.fileType.startsWith('image/');
+        const isImage = data.fileType ? data.fileType.startsWith('image/') : 
+                      (data.file && data.file.type && data.file.type.startsWith('image/')) ||
+                      (data.fileUrl && data.fileUrl.startsWith('data:image'));
         
         messageGroup.innerHTML = `
             <div class="message ${data.type}">
@@ -865,8 +1039,8 @@ class PrivateChatPro {
                     ${hasReply ? this.createReplyIndicator(data.replyTo) : ''}
                     <div class="message-media-container">
                         ${isImage ? 
-                            `<img src="${data.fileUrl}" class="message-media" alt="${data.fileName}" loading="lazy">` :
-                            `<video controls class="message-media"><source src="${data.fileUrl}" type="${data.fileType}"></video>`
+                            `<img src="${data.fileUrl || (data.file && data.file.data)}" class="message-media" alt="${data.fileName || 'Media'}" loading="lazy">` :
+                            `<video controls class="message-media"><source src="${data.fileUrl || (data.file && data.file.data)}" type="${data.fileType || 'video/mp4'}"></video>`
                         }
                     </div>
                     ${data.caption ? `<div class="media-caption">${this.escapeHtml(data.caption)}</div>` : ''}
@@ -874,12 +1048,14 @@ class PrivateChatPro {
                         <span class="message-sender">${data.username}</span>
                         <span class="message-time">${this.formatTime(data.timestamp)}</span>
                     </div>
+                    ${data.type === 'received' ? `
                     <div class="message-actions">
                         <button class="action-btn-small reply-btn" data-message-id="${data.id}" data-sender="${data.username}" data-text="${data.caption || 'Media'}">
                             <i class="fas fa-reply"></i>
                             <span>Reply</span>
                         </button>
                     </div>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -888,18 +1064,22 @@ class PrivateChatPro {
         this.scrollToBottom();
         
         // Add reply event listener
-        const replyBtn = messageGroup.querySelector('.reply-btn');
-        if (replyBtn) {
-            replyBtn.addEventListener('click', (e) => {
-                const messageId = e.currentTarget.dataset.messageId;
-                const sender = e.currentTarget.dataset.sender;
-                const text = e.currentTarget.dataset.text;
-                this.setupReply(messageId, sender, text);
-            });
+        if (data.type === 'received') {
+            const replyBtn = messageGroup.querySelector('.reply-btn');
+            if (replyBtn) {
+                replyBtn.addEventListener('click', (e) => {
+                    const messageId = e.currentTarget.dataset.messageId;
+                    const sender = e.currentTarget.dataset.sender;
+                    const text = e.currentTarget.dataset.text;
+                    this.setupReply(messageId, sender, text);
+                });
+            }
         }
     }
     
     displaySystemMessage(data) {
+        if (!this.messagesContainer) return;
+        
         const messageDiv = document.createElement('div');
         messageDiv.className = 'message system';
         messageDiv.innerHTML = `
@@ -913,11 +1093,13 @@ class PrivateChatPro {
     }
     
     createReplyIndicator(replyData) {
+        if (!replyData) return '';
+        
         return `
-            <div class="reply-indicator ${replyData.type}">
+            <div class="reply-indicator ${replyData.type || ''}">
                 <i class="fas fa-reply reply-indicator-icon"></i>
                 <div class="reply-indicator-content">
-                    <div class="reply-indicator-sender">${replyData.username}</div>
+                    <div class="reply-indicator-sender">${replyData.username || replyData.sender || 'User'}</div>
                     <div class="reply-indicator-text">${this.escapeHtml(replyData.text || 'Media')}</div>
                 </div>
             </div>
@@ -925,30 +1107,50 @@ class PrivateChatPro {
     }
     
     addWelcomeMessage() {
-        const welcomeMsg = document.querySelector('.welcome-message');
-        if (welcomeMsg) {
-            welcomeMsg.scrollIntoView({ behavior: 'smooth' });
-        }
+        if (!this.messagesContainer) return;
+        
+        const welcomeMsg = document.createElement('div');
+        welcomeMsg.className = 'message system';
+        welcomeMsg.innerHTML = `
+            <div class="message-content">
+                <div class="message-text">
+                    <i class="fas fa-user-secret"></i>
+                    Welcome to the room! All messages are anonymous and will be deleted after the session ends.
+                </div>
+            </div>
+        `;
+        
+        this.messagesContainer.appendChild(welcomeMsg);
+        this.scrollToBottom();
     }
     
     scrollToBottom() {
+        if (!this.messagesContainer) return;
+        
         setTimeout(() => {
             this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
         }, 100);
     }
     
     formatTime(timestamp) {
-        const date = new Date(timestamp);
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        try {
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        } catch (error) {
+            return '--:--';
+        }
     }
     
     escapeHtml(text) {
+        if (!text) return '';
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
     
     showToast(message, duration = 3000) {
+        if (!this.toast) return;
+        
         this.toast.textContent = message;
         this.toast.classList.add('show');
         
@@ -985,4 +1187,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return 'You have an active chat session. Are you sure you want to leave?';
         }
     });
+    
+    // Debug helper
+    window.debugChat = () => {
+        console.log('=== CHAT DEBUG INFO ===');
+        console.log('WebSocket:', window.chatApp.ws);
+        console.log('WebSocket State:', window.chatApp.ws ? window.chatApp.ws.readyState : 'No WebSocket');
+        console.log('Is Connected:', window.chatApp.isConnected);
+        console.log('Session Active:', window.chatApp.sessionActive);
+        console.log('Room ID:', window.chatApp.roomId);
+        console.log('Current User:', window.chatApp.userId);
+        console.log('========================');
+    };
 });
+[file content end]
