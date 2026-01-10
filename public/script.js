@@ -1,15 +1,35 @@
-class PrivateChat {
+class PrivateChatPro {
     constructor() {
-        this.ws = null;
-        this.userId = 'user_' + Math.random().toString(36).substr(2, 6);
+        // User & Room Configuration
+        this.userId = 'user_' + Math.random().toString(36).substr(2, 8);
+        this.username = `User${this.userId.substr(5, 4)}`;
         this.currentCategory = 'A';
         this.currentRoom = 1;
+        this.roomId = null;
+        
+        // Connection
+        this.ws = null;
         this.isConnected = false;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.pingInterval = null;
+        
+        // Session Management
         this.sessionTimer = null;
-        this.timeLeft = 900; // 15 menit
-        this.reconnectTimeout = null;
+        this.timeLeft = 900; // 15 minutes in seconds
+        this.sessionActive = false;
+        
+        // Message & Reply Management
+        this.replyingTo = null;
+        this.uploadedFile = null;
+        this.uploadProgress = 0;
+        this.emojiPickerActive = false;
         this.maxFileSize = 5 * 1024 * 1024; // 5MB
-        this.currentUpload = null;
+        this.allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'video/mp4', 'video/quicktime'];
+        
+        // UI State
+        this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        this.isPortrait = window.innerHeight > window.innerWidth;
         
         this.init();
     }
@@ -17,48 +37,61 @@ class PrivateChat {
     init() {
         this.cacheElements();
         this.bindEvents();
+        this.setupResponsive();
         this.renderSelector();
         this.connectWebSocket();
-        this.setupUI();
+        this.setupEmojiPicker();
+        this.preventZoom();
     }
     
     cacheElements() {
-        // Selector screen
-        this.selectorScreen = document.getElementById('selector');
-        this.chatScreen = document.getElementById('chat');
+        // Screens
+        this.selectorScreen = document.getElementById('selectorScreen');
+        this.chatScreen = document.getElementById('chatScreen');
+        
+        // Selector Elements
         this.catValue = document.getElementById('catValue');
         this.roomValue = document.getElementById('roomValue');
         this.roomDisplay = document.getElementById('roomDisplay');
-        
-        // Buttons
         this.prevCatBtn = document.getElementById('prevCat');
         this.nextCatBtn = document.getElementById('nextCat');
         this.prevRoomBtn = document.getElementById('prevRoom');
         this.nextRoomBtn = document.getElementById('nextRoom');
         this.enterBtn = document.getElementById('enterBtn');
-        this.backBtn = document.getElementById('backBtn');
-        this.sendBtn = document.getElementById('sendBtn');
-        this.attachBtn = document.getElementById('attachBtn');
-        this.cancelUploadBtn = document.getElementById('cancelUpload');
         
-        // Chat elements
+        // Chat Elements
         this.roomTitle = document.getElementById('roomTitle');
         this.userCount = document.getElementById('userCount');
         this.timerElement = document.getElementById('timer');
-        this.messagesContainer = document.getElementById('messages');
+        this.backBtn = document.getElementById('backBtn');
+        this.messagesContainer = document.getElementById('messagesContainer');
         this.messageInput = document.getElementById('messageInput');
+        this.sendBtn = document.getElementById('sendBtn');
+        this.attachBtn = document.getElementById('attachBtn');
         this.fileInput = document.getElementById('fileInput');
-        this.uploadProgress = document.getElementById('uploadProgress');
-        this.progressFill = document.querySelector('.progress-fill');
-        this.progressText = document.querySelector('.progress-text');
+        this.emojiBtn = document.getElementById('emojiBtn');
         
-        // Status elements
-        this.statusIndicator = document.getElementById('statusIndicator');
-        this.statusIcon = document.getElementById('statusIcon');
-        this.statusText = document.getElementById('statusText');
+        // Reply System
+        this.replyPreview = document.getElementById('replyPreview');
+        this.replySender = document.getElementById('replySender');
+        this.replyText = document.getElementById('replyText');
+        this.cancelReplyBtn = document.getElementById('cancelReply');
         
-        // Notification
-        this.notification = document.getElementById('notification');
+        // Upload System
+        this.uploadPreview = document.getElementById('uploadPreview');
+        this.previewImage = document.getElementById('previewImage');
+        this.captionInput = document.getElementById('captionInput');
+        this.captionCount = document.getElementById('captionCount');
+        this.removePreviewBtn = document.getElementById('removePreview');
+        
+        // Status & UI
+        this.connectionStatus = document.getElementById('connectionStatus');
+        this.statusIcon = document.querySelector('.status-icon');
+        this.statusText = document.querySelector('.status-text');
+        this.toast = document.getElementById('toast');
+        this.emojiPicker = document.getElementById('emojiPicker');
+        this.emojiGrid = document.getElementById('emojiGrid');
+        this.closeEmojiBtn = document.getElementById('closeEmoji');
     }
     
     bindEvents() {
@@ -70,42 +103,121 @@ class PrivateChat {
         this.enterBtn.addEventListener('click', () => this.enterRoom());
         this.backBtn.addEventListener('click', () => this.leaveRoom());
         
-        // Messaging
+        // Message Input
         this.sendBtn.addEventListener('click', () => this.sendMessage());
-        this.messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                this.sendMessage();
-            }
-        });
+        this.messageInput.addEventListener('input', () => this.autoResizeTextarea());
+        this.messageInput.addEventListener('keydown', (e) => this.handleKeydown(e));
+        this.messageInput.addEventListener('focus', () => this.hideEmojiPicker());
         
-        // File handling
+        // File Upload
         this.attachBtn.addEventListener('click', () => this.fileInput.click());
         this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
-        this.cancelUploadBtn.addEventListener('click', () => this.cancelUpload());
+        this.removePreviewBtn.addEventListener('click', () => this.clearUploadPreview());
+        this.captionInput.addEventListener('input', () => this.updateCaptionCounter());
         
-        // Prevent file dialog from opening multiple times
-        this.fileInput.addEventListener('click', (e) => e.stopPropagation());
+        // Reply System
+        this.cancelReplyBtn.addEventListener('click', () => this.cancelReply());
+        
+        // Emoji Picker
+        this.emojiBtn.addEventListener('click', () => this.toggleEmojiPicker());
+        this.closeEmojiBtn.addEventListener('click', () => this.hideEmojiPicker());
+        
+        // Window Events
+        window.addEventListener('resize', () => this.handleResize());
+        window.addEventListener('orientationchange', () => this.handleOrientationChange());
+        
+        // Prevent unwanted behaviors
+        document.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+        document.addEventListener('gesturestart', (e) => e.preventDefault());
     }
     
-    setupUI() {
-        // Set initial timer display
-        this.updateTimerDisplay();
-        
-        // Setup responsive behavior
-        window.addEventListener('resize', () => this.handleResize());
+    preventZoom() {
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (e) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                e.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, { passive: false });
+    }
+    
+    handleTouchStart(e) {
+        if (e.touches.length > 1) {
+            e.preventDefault();
+        }
+    }
+    
+    setupResponsive() {
         this.handleResize();
+        this.updateLayout();
     }
     
     handleResize() {
-        const isPortrait = window.innerHeight > window.innerWidth;
-        const inputHeight = document.querySelector('.input-container')?.offsetHeight || 70;
+        this.isPortrait = window.innerHeight > window.innerWidth;
+        this.updateLayout();
         
-        // Adjust status indicator position in portrait mode
-        if (isPortrait) {
-            this.statusIndicator.style.bottom = `${inputHeight + 20}px`;
+        // Adjust emoji picker position
+        if (this.emojiPickerActive) {
+            this.positionEmojiPicker();
+        }
+        
+        // Adjust connection status position
+        this.positionConnectionStatus();
+    }
+    
+    handleOrientationChange() {
+        setTimeout(() => {
+            this.handleResize();
+        }, 100);
+    }
+    
+    updateLayout() {
+        if (this.isPortrait) {
+            // Mobile portrait layout adjustments
+            document.documentElement.style.setProperty('--spacing-lg', '12px');
+            document.documentElement.style.setProperty('--spacing-xl', '20px');
+            
+            // Adjust input area for mobile
+            const inputArea = document.querySelector('.input-area');
+            if (inputArea) {
+                inputArea.style.minHeight = '70px';
+            }
+            
+            // Adjust connection status for mobile
+            this.connectionStatus.style.bottom = '80px';
         } else {
-            this.statusIndicator.style.bottom = '1rem';
+            // Landscape/desktop layout
+            document.documentElement.style.setProperty('--spacing-lg', '16px');
+            document.documentElement.style.setProperty('--spacing-xl', '24px');
+            
+            // Adjust connection status
+            this.connectionStatus.style.bottom = '20px';
+        }
+    }
+    
+    positionConnectionStatus() {
+        if (this.isPortrait) {
+            this.connectionStatus.style.bottom = '80px';
+            this.connectionStatus.style.right = '10px';
+        } else {
+            this.connectionStatus.style.bottom = '20px';
+            
+            // Center horizontally for desktop
+            const appWidth = document.getElementById('app').offsetWidth;
+            const windowWidth = window.innerWidth;
+            const leftPosition = (windowWidth - appWidth) / 2 + 20;
+            this.connectionStatus.style.right = `${leftPosition}px`;
+        }
+    }
+    
+    positionEmojiPicker() {
+        if (this.isPortrait) {
+            this.emojiPicker.style.bottom = '70px';
+            this.emojiPicker.style.right = '10px';
+        } else {
+            this.emojiPicker.style.bottom = '80px';
+            this.emojiPicker.style.right = '20px';
         }
     }
     
@@ -136,8 +248,8 @@ class PrivateChat {
     }
     
     connectWebSocket() {
-        if (this.ws) {
-            this.ws.close();
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            return;
         }
         
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -148,16 +260,18 @@ class PrivateChat {
         this.ws.onopen = () => {
             console.log('✓ WebSocket connected');
             this.isConnected = true;
-            this.updateStatus(true, 'Connected');
+            this.reconnectAttempts = 0;
+            this.updateConnectionStatus(true);
             
-            // Send user identification
+            // Send user info
             this.ws.send(JSON.stringify({
-                type: 'init',
-                userId: this.userId
+                type: 'user_info',
+                userId: this.userId,
+                username: this.username
             }));
             
-            // Setup ping to keep connection alive
-            this.setupPing();
+            // Start ping interval
+            this.startPing();
         };
         
         this.ws.onmessage = (event) => {
@@ -166,100 +280,104 @@ class PrivateChat {
                 this.handleServerMessage(data);
             } catch (error) {
                 console.error('Error parsing message:', error);
-                this.showNotification('Error parsing message');
+                this.showToast('Error processing message');
             }
         };
         
         this.ws.onclose = () => {
             console.log('✗ WebSocket disconnected');
             this.isConnected = false;
-            this.updateStatus(false, 'Disconnected');
+            this.updateConnectionStatus(false);
+            
+            if (this.pingInterval) {
+                clearInterval(this.pingInterval);
+                this.pingInterval = null;
+            }
+            
             this.scheduleReconnect();
         };
         
         this.ws.onerror = (error) => {
             console.error('WebSocket error:', error);
-            this.updateStatus(false, 'Connection Error');
+            this.updateConnectionStatus(false);
         };
     }
     
-    setupPing() {
-        // Send ping every 30 seconds to keep connection alive
-        setInterval(() => {
+    startPing() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+        }
+        
+        this.pingInterval = setInterval(() => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.send(JSON.stringify({ type: 'ping' }));
             }
-        }, 30000);
+        }, 25000); // Ping every 25 seconds
     }
     
     scheduleReconnect() {
-        if (this.reconnectTimeout) {
-            clearTimeout(this.reconnectTimeout);
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            this.showToast('Cannot connect to server. Please refresh.');
+            return;
         }
         
-        this.reconnectTimeout = setTimeout(() => {
+        this.reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
+        
+        setTimeout(() => {
             if (!this.isConnected) {
                 this.connectWebSocket();
             }
-        }, 3000);
+        }, delay);
     }
     
-    updateStatus(connected, text) {
+    updateConnectionStatus(connected) {
+        const statusIcon = this.connectionStatus.querySelector('.status-icon');
+        const statusText = this.connectionStatus.querySelector('.status-text');
+        
         if (connected) {
-            this.statusIcon.textContent = '●';
-            this.statusIcon.className = 'status-icon connected';
-            this.statusText.textContent = text;
+            statusIcon.className = 'status-icon connected';
+            statusIcon.classList.remove('fa-wifi');
+            statusIcon.classList.add('fa-check-circle');
+            statusText.textContent = 'Connected';
+            this.connectionStatus.style.borderColor = 'var(--success)';
         } else {
-            this.statusIcon.textContent = '●';
-            this.statusIcon.className = 'status-icon';
-            this.statusText.textContent = text;
+            statusIcon.className = 'status-icon';
+            statusIcon.classList.remove('fa-check-circle');
+            statusIcon.classList.add('fa-wifi');
+            statusText.textContent = 'Connecting...';
+            this.connectionStatus.style.borderColor = 'var(--error)';
         }
     }
     
     handleServerMessage(data) {
         switch (data.type) {
-            case 'init':
-                this.userId = data.userId || this.userId;
+            case 'room_joined':
+                this.handleRoomJoined(data);
                 break;
                 
-            case 'joined':
-                this.roomTitle.textContent = `Room ${data.roomId}`;
-                this.userCount.textContent = `${data.userCount} users`;
-                this.startSessionTimer();
-                this.showNotification(`Joined room ${data.roomId}`);
-                break;
-                
-            case 'system':
-                this.addSystemMessage(data.message);
-                if (data.userCount !== undefined) {
-                    this.userCount.textContent = `${data.userCount} users`;
-                }
+            case 'user_count':
+                this.updateUserCount(data.count);
                 break;
                 
             case 'message':
-                this.addMessage(
-                    data.userId === this.userId ? 'sent' : 'received',
-                    data.userId === this.userId ? 'You' : `User${data.userId.substr(5, 3)}`,
-                    data.text,
-                    data.timestamp
-                );
+                this.displayMessage(data);
+                break;
+                
+            case 'reply':
+                this.displayReply(data);
                 break;
                 
             case 'media':
-                this.addMediaMessage(
-                    data.userId === this.userId ? 'sent' : 'received',
-                    data.userId === this.userId ? 'You' : `User${data.userId.substr(5, 3)}`,
-                    data.mediaType,
-                    data.data,
-                    data.filename,
-                    data.filesize,
-                    data.timestamp
-                );
+                this.displayMediaMessage(data);
                 break;
                 
-            case 'timeout':
-                this.leaveRoom();
-                this.showNotification('Session expired (15 minutes)');
+            case 'system':
+                this.displaySystemMessage(data);
+                break;
+                
+            case 'error':
+                this.showToast(data.message);
                 break;
                 
             case 'upload_progress':
@@ -267,67 +385,80 @@ class PrivateChat {
                 break;
                 
             case 'upload_complete':
-                this.uploadComplete();
-                break;
-                
-            case 'upload_error':
-                this.uploadError(data.error);
+                this.handleUploadComplete(data);
                 break;
         }
     }
     
+    handleRoomJoined(data) {
+        this.roomId = data.roomId;
+        this.roomTitle.querySelector('span').textContent = `Room ${data.roomId}`;
+        this.sessionActive = true;
+        this.startSessionTimer();
+        this.showToast(`Joined room ${data.roomId}`);
+        
+        // Add welcome message
+        this.addWelcomeMessage();
+    }
+    
     enterRoom() {
         if (!this.isConnected) {
-            this.showNotification('Connecting to server...');
+            this.showToast('Connecting to server...');
             return;
         }
         
         const roomId = `${this.currentCategory}-${this.currentRoom.toString().padStart(3, '0')}`;
         
         this.ws.send(JSON.stringify({
-            type: 'join',
+            type: 'join_room',
             category: this.currentCategory,
             room: this.currentRoom,
-            userId: this.userId
+            userId: this.userId,
+            username: this.username
         }));
         
-        // Switch to chat screen
+        // Switch screens
         this.selectorScreen.classList.remove('active');
         this.chatScreen.style.display = 'flex';
         
-        // Clear messages except welcome
-        const welcomeMsg = this.messagesContainer.querySelector('.welcome-message');
+        // Clear messages
         this.messagesContainer.innerHTML = '';
-        if (welcomeMsg) {
-            this.messagesContainer.appendChild(welcomeMsg);
-        }
         
         // Focus input
         setTimeout(() => {
             this.messageInput.focus();
-        }, 100);
+        }, 300);
+        
+        // Update layout
+        this.updateLayout();
     }
     
     leaveRoom() {
-        // Switch to selector screen
+        if (this.sessionActive) {
+            this.ws.send(JSON.stringify({
+                type: 'leave_room',
+                userId: this.userId
+            }));
+        }
+        
+        // Switch screens
         this.chatScreen.style.display = 'none';
         this.selectorScreen.classList.add('active');
         
-        // Stop session timer
-        if (this.sessionTimer) {
-            clearInterval(this.sessionTimer);
-            this.sessionTimer = null;
-        }
-        
-        // Reset timer
+        // Reset session
+        this.sessionActive = false;
+        this.stopSessionTimer();
         this.timeLeft = 900;
         this.updateTimerDisplay();
         
-        // Clear input
+        // Clear states
+        this.cancelReply();
+        this.clearUploadPreview();
         this.messageInput.value = '';
+        this.autoResizeTextarea();
         
-        // Hide upload progress if visible
-        this.hideUploadProgress();
+        // Update layout
+        this.updateLayout();
     }
     
     startSessionTimer() {
@@ -345,9 +476,16 @@ class PrivateChat {
             
             if (this.timeLeft <= 0) {
                 this.leaveRoom();
-                this.showNotification('Session expired');
+                this.showToast('Session expired (15 minutes)');
             }
         }, 1000);
+    }
+    
+    stopSessionTimer() {
+        if (this.sessionTimer) {
+            clearInterval(this.sessionTimer);
+            this.sessionTimer = null;
+        }
     }
     
     updateTimerDisplay() {
@@ -357,23 +495,145 @@ class PrivateChat {
             `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
     
+    updateUserCount(count) {
+        this.userCount.querySelector('span').textContent = count;
+    }
+    
+    handleKeydown(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            this.sendMessage();
+        }
+        
+        // Escape key cancels reply or upload preview
+        if (e.key === 'Escape') {
+            if (this.replyingTo) {
+                this.cancelReply();
+            }
+            if (this.uploadedFile) {
+                this.clearUploadPreview();
+            }
+        }
+    }
+    
+    autoResizeTextarea() {
+        const textarea = this.messageInput;
+        textarea.style.height = 'auto';
+        const newHeight = Math.min(textarea.scrollHeight, 100);
+        textarea.style.height = newHeight + 'px';
+        
+        // Update input wrapper height
+        const wrapper = textarea.closest('.message-input-wrapper');
+        if (wrapper) {
+            wrapper.style.maxHeight = Math.min(newHeight + 32, 150) + 'px';
+        }
+    }
+    
     sendMessage() {
         const text = this.messageInput.value.trim();
-        if (!text || !this.isConnected) return;
+        const hasFile = this.uploadedFile !== null;
         
-        if (this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
-                type: 'message',
-                text: text,
-                userId: this.userId,
-                timestamp: Date.now()
-            }));
+        if (!text && !hasFile) {
+            return;
+        }
+        
+        if (!this.isConnected || !this.sessionActive) {
+            this.showToast('Not connected or session inactive');
+            return;
+        }
+        
+        const messageData = {
+            type: hasFile ? 'upload_media' : (this.replyingTo ? 'reply' : 'message'),
+            userId: this.userId,
+            username: this.username,
+            timestamp: Date.now(),
+            replyTo: this.replyingTo,
+            roomId: this.roomId
+        };
+        
+        if (hasFile) {
+            // Send file with caption
+            messageData.file = this.uploadedFile;
+            messageData.caption = this.captionInput.value.trim();
+            messageData.fileName = this.uploadedFile.name;
+            messageData.fileSize = this.uploadedFile.size;
+            messageData.fileType = this.uploadedFile.type;
             
-            // Clear input
-            this.messageInput.value = '';
-            this.messageInput.focus();
+            // Show upload progress
+            this.showUploadProgress();
+            
+            // Simulate upload (in real app, this would be actual upload)
+            this.simulateFileUpload(messageData);
         } else {
-            this.showNotification('Connection lost');
+            // Send text message
+            messageData.text = text;
+            
+            if (this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify(messageData));
+                
+                // Clear input and states
+                this.messageInput.value = '';
+                this.autoResizeTextarea();
+                this.cancelReply();
+                
+                // Show sending indicator
+                this.showSendingIndicator();
+            }
+        }
+    }
+    
+    showSendingIndicator() {
+        const tempId = 'temp_' + Date.now();
+        const tempMessage = {
+            id: tempId,
+            type: 'sent',
+            username: this.username,
+            text: this.messageInput.value.trim(),
+            timestamp: Date.now()
+        };
+        
+        if (this.replyingTo) {
+            tempMessage.replyTo = this.replyingTo;
+        }
+        
+        this.displayMessage(tempMessage);
+    }
+    
+    simulateFileUpload(messageData) {
+        let progress = 0;
+        const interval = setInterval(() => {
+            progress += 10;
+            this.updateUploadProgress(progress);
+            
+            if (progress >= 100) {
+                clearInterval(interval);
+                
+                // Upload complete
+                if (this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify(messageData));
+                }
+                
+                // Clear states
+                this.clearUploadPreview();
+                this.messageInput.value = '';
+                this.autoResizeTextarea();
+                this.cancelReply();
+                
+                this.showToast('File uploaded successfully');
+            }
+        }, 100);
+    }
+    
+    showUploadProgress() {
+        // This would show actual upload progress UI
+        console.log('Upload starting...');
+    }
+    
+    updateUploadProgress(progress) {
+        // Update progress bar UI
+        const progressBar = document.querySelector('.progress-fill');
+        if (progressBar) {
+            progressBar.style.width = `${progress}%`;
         }
     }
     
@@ -381,192 +641,294 @@ class PrivateChat {
         const file = event.target.files[0];
         if (!file) return;
         
-        // Validate file size (5MB max)
+        // Validate file size
         if (file.size > this.maxFileSize) {
-            this.showNotification(`File too large (max ${this.formatFileSize(this.maxFileSize)})`);
+            this.showToast(`File too large (max 5MB)`);
             event.target.value = '';
             return;
         }
         
         // Validate file type
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime'];
-        if (!allowedTypes.includes(file.type)) {
-            this.showNotification('Only images and videos are allowed');
+        if (!this.allowedTypes.includes(file.type)) {
+            this.showToast('Only images and videos are allowed');
             event.target.value = '';
             return;
         }
         
-        // Start upload
-        this.uploadFile(file);
+        // Store file
+        this.uploadedFile = file;
+        
+        // Show preview
+        this.showFilePreview(file);
+        
+        // Clear file input
         event.target.value = '';
     }
     
-    uploadFile(file) {
-        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            this.showNotification('Not connected to server');
-            return;
-        }
+    showFilePreview(file) {
+        this.uploadPreview.classList.add('active');
         
-        this.currentUpload = {
-            file: file,
-            progress: 0
-        };
-        
-        // Show upload progress
-        this.showUploadProgress();
-        
-        // Simulate upload progress (in real app, this would be handled server-side)
-        const simulateProgress = () => {
-            if (this.currentUpload) {
-                this.currentUpload.progress += 10;
-                this.updateUploadProgress(this.currentUpload.progress);
-                
-                if (this.currentUpload.progress < 100) {
-                    setTimeout(simulateProgress, 200);
-                } else {
-                    // Upload complete
-                    setTimeout(() => {
-                        this.sendFileMessage(file);
-                        this.uploadComplete();
-                    }, 500);
-                }
-            }
-        };
-        
-        simulateProgress();
-    }
-    
-    sendFileMessage(file) {
-        const reader = new FileReader();
-        
-        reader.onload = (event) => {
-            if (this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify({
-                    type: 'media',
-                    mediaType: file.type.startsWith('image/') ? 'image' : 'video',
-                    data: event.target.result,
-                    filename: file.name,
-                    filesize: file.size,
-                    userId: this.userId,
-                    timestamp: Date.now()
-                }));
-            }
-        };
-        
-        reader.readAsDataURL(file);
-    }
-    
-    showUploadProgress() {
-        this.uploadProgress.style.display = 'flex';
-        this.progressFill.style.width = '0%';
-        this.progressText.textContent = 'Uploading...';
-    }
-    
-    updateUploadProgress(progress) {
-        if (this.currentUpload) {
-            this.currentUpload.progress = progress;
-            this.progressFill.style.width = `${progress}%`;
-            this.progressText.textContent = `Uploading... ${progress}%`;
-        }
-    }
-    
-    uploadComplete() {
-        this.currentUpload = null;
-        this.hideUploadProgress();
-        this.showNotification('File uploaded successfully');
-    }
-    
-    uploadError(error) {
-        this.currentUpload = null;
-        this.hideUploadProgress();
-        this.showNotification(`Upload failed: ${error}`);
-    }
-    
-    cancelUpload() {
-        this.currentUpload = null;
-        this.hideUploadProgress();
-        this.showNotification('Upload cancelled');
-    }
-    
-    hideUploadProgress() {
-        this.uploadProgress.style.display = 'none';
-        this.progressFill.style.width = '0%';
-    }
-    
-    formatFileSize(bytes) {
-        if (bytes < 1024) return bytes + ' bytes';
-        else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-        else return (bytes / 1048576).toFixed(1) + ' MB';
-    }
-    
-    addSystemMessage(text) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'message system';
-        
-        messageDiv.innerHTML = `
-            <div class="message-content">
-                <div class="message-text">${this.escapeHtml(text)}</div>
-            </div>
-        `;
-        
-        this.messagesContainer.appendChild(messageDiv);
-        this.scrollToBottom();
-    }
-    
-    addMessage(type, sender, text, timestamp) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${type}`;
-        
-        const time = new Date(timestamp);
-        const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
-        
-        messageDiv.innerHTML = `
-            <div class="message-content">
-                <div class="message-text">${this.escapeHtml(text)}</div>
-                <div class="message-meta">
-                    <span class="message-sender">${sender}</span>
-                    <span class="message-time">${timeStr}</span>
+        // Create preview
+        if (file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                this.previewImage.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+            };
+            reader.readAsDataURL(file);
+        } else if (file.type.startsWith('video/')) {
+            this.previewImage.innerHTML = `
+                <div class="video-preview">
+                    <i class="fas fa-video"></i>
+                    <span>${file.name}</span>
                 </div>
-            </div>
-        `;
-        
-        this.messagesContainer.appendChild(messageDiv);
-        this.scrollToBottom();
-    }
-    
-    addMediaMessage(type, sender, mediaType, data, filename, filesize, timestamp) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${type}`;
-        
-        const time = new Date(timestamp);
-        const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
-        
-        let mediaContent = '';
-        if (mediaType === 'image') {
-            mediaContent = `<img src="${data}" class="message-media" alt="${filename}" loading="lazy">`;
-        } else if (mediaType === 'video') {
-            mediaContent = `<video controls class="message-media"><source src="${data}" type="video/mp4"></video>`;
+            `;
         }
         
-        messageDiv.innerHTML = `
-            <div class="message-content">
-                ${mediaContent}
-                <div class="message-file">
-                    <div class="file-icon">📎</div>
-                    <div class="file-info">
-                        <div class="file-name">${this.escapeHtml(filename)}</div>
-                        <div class="file-size">${this.formatFileSize(filesize)}</div>
+        // Focus caption input
+        setTimeout(() => {
+            this.captionInput.focus();
+        }, 100);
+    }
+    
+    clearUploadPreview() {
+        this.uploadedFile = null;
+        this.uploadPreview.classList.remove('active');
+        this.previewImage.innerHTML = '';
+        this.captionInput.value = '';
+        this.updateCaptionCounter();
+    }
+    
+    updateCaptionCounter() {
+        const length = this.captionInput.value.length;
+        this.captionCount.textContent = length;
+        
+        if (length > 180) {
+            this.captionCount.style.color = 'var(--warning)';
+        } else if (length > 190) {
+            this.captionCount.style.color = 'var(--error)';
+        } else {
+            this.captionCount.style.color = 'var(--white-70)';
+        }
+    }
+    
+    setupEmojiPicker() {
+        // Common emojis
+        const emojis = ['😀', '😂', '🥰', '😎', '🤔', '😱', '👍', '👎', '❤️', '🔥', '🎉', '🙏', '💯', '👋', '🤝', '💪', '🧠', '✨', '🌟', '📸', '🎥', '🔒', '⏰', '🚀'];
+        
+        this.emojiGrid.innerHTML = '';
+        emojis.forEach(emoji => {
+            const button = document.createElement('button');
+            button.className = 'emoji-btn';
+            button.textContent = emoji;
+            button.addEventListener('click', () => this.insertEmoji(emoji));
+            this.emojiGrid.appendChild(button);
+        });
+    }
+    
+    toggleEmojiPicker() {
+        this.emojiPickerActive = !this.emojiPickerActive;
+        this.emojiPicker.classList.toggle('active', this.emojiPickerActive);
+        
+        if (this.emojiPickerActive) {
+            this.positionEmojiPicker();
+        }
+    }
+    
+    hideEmojiPicker() {
+        this.emojiPickerActive = false;
+        this.emojiPicker.classList.remove('active');
+    }
+    
+    insertEmoji(emoji) {
+        const textarea = this.messageInput;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const text = textarea.value;
+        
+        textarea.value = text.substring(0, start) + emoji + text.substring(end);
+        textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
+        textarea.focus();
+        
+        this.autoResizeTextarea();
+        this.hideEmojiPicker();
+    }
+    
+    // Reply System
+    setupReply(messageId, sender, text) {
+        this.replyingTo = messageId;
+        this.replySender.textContent = sender;
+        this.replyText.textContent = text.length > 50 ? text.substring(0, 50) + '...' : text;
+        this.replyPreview.classList.add('active');
+        
+        // Scroll reply preview into view
+        this.replyPreview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        
+        // Focus message input
+        this.messageInput.focus();
+    }
+    
+    cancelReply() {
+        this.replyingTo = null;
+        this.replyPreview.classList.remove('active');
+    }
+    
+    // Message Display
+    displayMessage(data) {
+        const messageGroup = document.createElement('div');
+        messageGroup.className = `message-group ${data.type}`;
+        
+        // Check if this is a reply
+        const hasReply = data.replyTo && typeof data.replyTo === 'object';
+        
+        messageGroup.innerHTML = `
+            <div class="message ${data.type}">
+                <div class="message-content">
+                    ${hasReply ? this.createReplyIndicator(data.replyTo) : ''}
+                    ${data.text ? `<div class="message-text">${this.escapeHtml(data.text)}</div>` : ''}
+                    <div class="message-meta">
+                        <span class="message-sender">${data.username}</span>
+                        <span class="message-time">${this.formatTime(data.timestamp)}</span>
+                    </div>
+                    <div class="message-actions">
+                        <button class="action-btn-small reply-btn" data-message-id="${data.id}" data-sender="${data.username}" data-text="${this.escapeHtml(data.text || '')}">
+                            <i class="fas fa-reply"></i>
+                            <span>Reply</span>
+                        </button>
                     </div>
                 </div>
-                <div class="message-meta">
-                    <span class="message-sender">${sender}</span>
-                    <span class="message-time">${timeStr}</span>
+            </div>
+        `;
+        
+        this.messagesContainer.appendChild(messageGroup);
+        this.scrollToBottom();
+        
+        // Add reply event listener
+        const replyBtn = messageGroup.querySelector('.reply-btn');
+        if (replyBtn) {
+            replyBtn.addEventListener('click', (e) => {
+                const messageId = e.currentTarget.dataset.messageId;
+                const sender = e.currentTarget.dataset.sender;
+                const text = e.currentTarget.dataset.text;
+                this.setupReply(messageId, sender, text);
+            });
+        }
+    }
+    
+    displayReply(data) {
+        const messageGroup = document.createElement('div');
+        messageGroup.className = `message-group ${data.type}`;
+        
+        messageGroup.innerHTML = `
+            <div class="message ${data.type}">
+                <div class="message-content">
+                    ${this.createReplyIndicator(data.replyTo)}
+                    <div class="message-text">${this.escapeHtml(data.text)}</div>
+                    <div class="message-meta">
+                        <span class="message-sender">${data.username}</span>
+                        <span class="message-time">${this.formatTime(data.timestamp)}</span>
+                    </div>
+                    <div class="message-actions">
+                        <button class="action-btn-small reply-btn" data-message-id="${data.id}" data-sender="${data.username}" data-text="${this.escapeHtml(data.text)}">
+                            <i class="fas fa-reply"></i>
+                            <span>Reply</span>
+                        </button>
+                    </div>
                 </div>
+            </div>
+        `;
+        
+        this.messagesContainer.appendChild(messageGroup);
+        this.scrollToBottom();
+        
+        // Add reply event listener
+        const replyBtn = messageGroup.querySelector('.reply-btn');
+        if (replyBtn) {
+            replyBtn.addEventListener('click', (e) => {
+                const messageId = e.currentTarget.dataset.messageId;
+                const sender = e.currentTarget.dataset.sender;
+                const text = e.currentTarget.dataset.text;
+                this.setupReply(messageId, sender, text);
+            });
+        }
+    }
+    
+    displayMediaMessage(data) {
+        const messageGroup = document.createElement('div');
+        messageGroup.className = `message-group ${data.type}`;
+        
+        const hasReply = data.replyTo && typeof data.replyTo === 'object';
+        const isImage = data.fileType.startsWith('image/');
+        
+        messageGroup.innerHTML = `
+            <div class="message ${data.type}">
+                <div class="message-content">
+                    ${hasReply ? this.createReplyIndicator(data.replyTo) : ''}
+                    <div class="message-media-container">
+                        ${isImage ? 
+                            `<img src="${data.fileUrl}" class="message-media" alt="${data.fileName}" loading="lazy">` :
+                            `<video controls class="message-media"><source src="${data.fileUrl}" type="${data.fileType}"></video>`
+                        }
+                    </div>
+                    ${data.caption ? `<div class="media-caption">${this.escapeHtml(data.caption)}</div>` : ''}
+                    <div class="message-meta">
+                        <span class="message-sender">${data.username}</span>
+                        <span class="message-time">${this.formatTime(data.timestamp)}</span>
+                    </div>
+                    <div class="message-actions">
+                        <button class="action-btn-small reply-btn" data-message-id="${data.id}" data-sender="${data.username}" data-text="${data.caption || 'Media'}">
+                            <i class="fas fa-reply"></i>
+                            <span>Reply</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        this.messagesContainer.appendChild(messageGroup);
+        this.scrollToBottom();
+        
+        // Add reply event listener
+        const replyBtn = messageGroup.querySelector('.reply-btn');
+        if (replyBtn) {
+            replyBtn.addEventListener('click', (e) => {
+                const messageId = e.currentTarget.dataset.messageId;
+                const sender = e.currentTarget.dataset.sender;
+                const text = e.currentTarget.dataset.text;
+                this.setupReply(messageId, sender, text);
+            });
+        }
+    }
+    
+    displaySystemMessage(data) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message system';
+        messageDiv.innerHTML = `
+            <div class="message-content">
+                <div class="message-text">${this.escapeHtml(data.text)}</div>
             </div>
         `;
         
         this.messagesContainer.appendChild(messageDiv);
         this.scrollToBottom();
+    }
+    
+    createReplyIndicator(replyData) {
+        return `
+            <div class="reply-indicator ${replyData.type}">
+                <i class="fas fa-reply reply-indicator-icon"></i>
+                <div class="reply-indicator-content">
+                    <div class="reply-indicator-sender">${replyData.username}</div>
+                    <div class="reply-indicator-text">${this.escapeHtml(replyData.text || 'Media')}</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    addWelcomeMessage() {
+        const welcomeMsg = document.querySelector('.welcome-message');
+        if (welcomeMsg) {
+            welcomeMsg.scrollIntoView({ behavior: 'smooth' });
+        }
     }
     
     scrollToBottom() {
@@ -575,38 +937,52 @@ class PrivateChat {
         }, 100);
     }
     
+    formatTime(timestamp) {
+        const date = new Date(timestamp);
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
     
-    showNotification(message, duration = 3000) {
-        this.notification.textContent = message;
-        this.notification.classList.add('show');
+    showToast(message, duration = 3000) {
+        this.toast.textContent = message;
+        this.toast.classList.add('show');
         
         setTimeout(() => {
-            this.notification.classList.remove('show');
+            this.toast.classList.remove('show');
         }, duration);
     }
 }
 
-// Initialize the chat application
+// Initialize the application
 document.addEventListener('DOMContentLoaded', () => {
-    // Create global app instance
-    window.chatApp = new PrivateChat();
-    
-    // Prevent context menu on long press
-    document.addEventListener('contextmenu', (e) => {
-        if (e.target.tagName === 'IMG' || e.target.tagName === 'VIDEO') {
+    // Prevent default touch behaviors
+    document.addEventListener('touchmove', (e) => {
+        if (e.scale !== 1) {
             e.preventDefault();
+        }
+    }, { passive: false });
+    
+    // Initialize chat app
+    window.chatApp = new PrivateChatPro();
+    
+    // Handle back button
+    window.addEventListener('popstate', () => {
+        if (window.chatApp && window.chatApp.sessionActive) {
+            window.chatApp.leaveRoom();
         }
     });
     
-    // Handle back button/gesture
-    window.addEventListener('popstate', () => {
-        if (window.chatApp) {
-            window.chatApp.leaveRoom();
+    // Prevent accidental navigation
+    window.addEventListener('beforeunload', (e) => {
+        if (window.chatApp && window.chatApp.sessionActive) {
+            e.preventDefault();
+            e.returnValue = '';
+            return 'You have an active chat session. Are you sure you want to leave?';
         }
     });
 });
