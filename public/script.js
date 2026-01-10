@@ -1,5 +1,3 @@
-[file name]: deepseek_javascript_20260110_58b93c.js
-[file content begin]
 class PrivateChatPro {
     constructor() {
         // User & Room Configuration
@@ -1200,4 +1198,3 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('========================');
     };
 });
-[file content end]
