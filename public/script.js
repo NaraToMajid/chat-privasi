@@ -16,7 +16,6 @@ class ChatApp {
         this.cacheElements();
         this.bindEvents();
         this.renderSelector();
-        this.connectWebSocket();
         this.updateUserIdDisplay();
     }
     
@@ -125,25 +124,6 @@ class ChatApp {
         this.userIdDisplay.textContent = this.userId;
     }
     
-    connectWebSocket() {
-        // Simulasi koneksi WebSocket (dalam implementasi nyata, ganti dengan URL server WebSocket Anda)
-        console.log('Menyambung ke server...');
-        
-        // Simulasi koneksi sukses setelah 1 detik
-        setTimeout(() => {
-            this.isConnected = true;
-            this.updateStatus(true);
-            console.log('Terhubung ke server (simulasi)');
-        }, 1000);
-        
-        // Simulasi pesan dari server
-        setInterval(() => {
-            if (this.isConnected && Math.random() > 0.7) {
-                this.handleIncomingMessage();
-            }
-        }, 5000);
-    }
-    
     updateStatus(connected) {
         this.statusDot.classList.toggle('connected', connected);
         this.statusText.textContent = connected ? 'Terhubung' : 'Terputus';
@@ -151,14 +131,21 @@ class ChatApp {
     
     enterRoom() {
         if (!this.isConnected) {
-            alert('Belum terhubung ke server. Tunggu sebentar...');
+            alert('Belum terhubung ke server. Harap hubungkan ke server WebSocket terlebih dahulu.');
             return;
         }
         
         const roomId = `${this.currentCategory}-${this.currentRoom.toString().padStart(3, '0')}`;
         
-        // Simulasi pengiriman permintaan join ke server
-        console.log(`Bergabung ke room: ${roomId} sebagai ${this.userId}`);
+        // Kirim permintaan join ke server melalui WebSocket
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            const joinMessage = {
+                type: 'join',
+                userId: this.userId,
+                roomId: roomId
+            };
+            this.ws.send(JSON.stringify(joinMessage));
+        }
         
         // Switch screens
         this.screenSelector.classList.remove('active');
@@ -177,22 +164,20 @@ class ChatApp {
             timestamp: Date.now()
         });
         
-        // Simulasi user lain bergabung
-        setTimeout(() => {
-            this.addMessage({
-                type: 'system',
-                message: 'Pengguna lain telah bergabung',
-                timestamp: Date.now(),
-                userCount: 2
-            });
-            this.roomStats.textContent = '2 pengguna online';
-        }, 1500);
-        
         // Start session timer
         this.startSessionTimer();
     }
     
     leaveRoom() {
+        // Kirim permintaan leave ke server
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            const leaveMessage = {
+                type: 'leave',
+                userId: this.userId
+            };
+            this.ws.send(JSON.stringify(leaveMessage));
+        }
+        
         // Switch screens
         this.chatScreen.classList.remove('active');
         this.screenSelector.classList.add('active');
@@ -229,26 +214,87 @@ class ChatApp {
         }, 1000);
     }
     
-    handleIncomingMessage() {
-        const messages = [
-            "Halo! Bagaimana kabarmu?",
-            "Sesi ini benar-benar anonim ya?",
-            "Percakapan akan terhapus otomatis setelah 15 menit",
-            "Bisa kirim gambar juga lho",
-            "Sudah berapa lama di sini?"
-        ];
+    // Metode untuk menghubungkan WebSocket sebenarnya
+    connectWebSocket(serverUrl) {
+        if (this.ws) {
+            this.ws.close();
+        }
         
-        const users = ['User1', 'AnonX', 'Pengguna', 'Teman'];
-        
-        const randomUser = users[Math.floor(Math.random() * users.length)];
-        const randomMessage = messages[Math.floor(Math.random() * messages.length)];
-        
-        this.addMessage({
-            type: 'received',
-            userId: randomUser,
-            text: randomMessage,
-            timestamp: Date.now()
-        });
+        try {
+            this.ws = new WebSocket(serverUrl);
+            this.ws.onopen = () => {
+                this.isConnected = true;
+                this.updateStatus(true);
+                console.log('WebSocket connected');
+            };
+            
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleWebSocketMessage(data);
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+            
+            this.ws.onclose = () => {
+                this.isConnected = false;
+                this.updateStatus(false);
+                console.log('WebSocket disconnected');
+            };
+            
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                this.isConnected = false;
+                this.updateStatus(false);
+            };
+            
+        } catch (error) {
+            console.error('Error connecting WebSocket:', error);
+            this.isConnected = false;
+            this.updateStatus(false);
+        }
+    }
+    
+    handleWebSocketMessage(data) {
+        switch (data.type) {
+            case 'message':
+                this.addMessage({
+                    type: 'received',
+                    userId: data.userId,
+                    text: data.text,
+                    image: data.image,
+                    timestamp: data.timestamp,
+                    replyTo: data.replyTo
+                });
+                break;
+                
+            case 'userCount':
+                this.roomStats.textContent = `${data.count} pengguna online`;
+                break;
+                
+            case 'userJoined':
+                this.addMessage({
+                    type: 'system',
+                    message: 'Pengguna lain telah bergabung',
+                    timestamp: Date.now(),
+                    userCount: data.count
+                });
+                break;
+                
+            case 'userLeft':
+                this.addMessage({
+                    type: 'system',
+                    message: 'Pengguna telah keluar',
+                    timestamp: Date.now(),
+                    userCount: data.count
+                });
+                break;
+                
+            case 'error':
+                alert(`Error: ${data.message}`);
+                break;
+        }
     }
     
     sendMessage() {
@@ -260,10 +306,22 @@ class ChatApp {
             return;
         }
         
-        // Simulasi pengiriman pesan ke server
-        console.log('Mengirim pesan:', text);
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            alert('Koneksi WebSocket tidak tersedia');
+            return;
+        }
         
-        // Tambahkan pesan ke chat
+        const message = {
+            type: 'message',
+            userId: this.userId,
+            text: text,
+            timestamp: Date.now(),
+            replyTo: this.replyingTo
+        };
+        
+        this.ws.send(JSON.stringify(message));
+        
+        // Tambahkan pesan ke chat (tampilan lokal)
         this.addMessage({
             type: 'sent',
             userId: this.userId,
@@ -276,13 +334,6 @@ class ChatApp {
         this.messageInput.value = '';
         this.messageInput.focus();
         this.cancelReply();
-        
-        // Simulasi balasan dari user lain setelah 1-3 detik
-        if (Math.random() > 0.3) {
-            setTimeout(() => {
-                this.handleIncomingMessage();
-            }, 1000 + Math.random() * 2000);
-        }
     }
     
     handleFileUpload(event) {
@@ -309,10 +360,24 @@ class ChatApp {
                 return;
             }
             
-            // Simulasi pengiriman gambar ke server
-            console.log('Mengirim gambar:', file.name);
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                alert('Koneksi WebSocket tidak tersedia');
+                return;
+            }
             
-            // Tambahkan gambar ke chat
+            const message = {
+                type: 'message',
+                userId: this.userId,
+                image: e.target.result,
+                timestamp: Date.now(),
+                fileName: file.name,
+                fileSize: file.size,
+                fileType: file.type
+            };
+            
+            this.ws.send(JSON.stringify(message));
+            
+            // Tambahkan gambar ke chat (tampilan lokal)
             this.addMessage({
                 type: 'sent',
                 userId: this.userId,
@@ -351,7 +416,7 @@ class ChatApp {
                 replySection = `
                     <div class="message-reply">
                         <div class="message-reply-user">${msg.replyTo.userId}:</div>
-                        <div class="message-reply-text">${msg.replyTo.text.substring(0, 50)}${msg.replyTo.text.length > 50 ? '...' : ''}</div>
+                        <div class="message-reply-text">${msg.replyTo.text ? msg.replyTo.text.substring(0, 50) : '[Gambar]'}${msg.replyTo.text && msg.replyTo.text.length > 50 ? '...' : ''}</div>
                     </div>
                 `;
             }
@@ -476,4 +541,7 @@ class ChatApp {
 // Initialize app when page loads
 document.addEventListener('DOMContentLoaded', () => {
     window.chatApp = new ChatApp();
+    
+    // Contoh cara menghubungkan ke server WebSocket
+    // chatApp.connectWebSocket('ws://localhost:8080');
 });
